@@ -151,17 +151,19 @@ install_packages() {
 # Function to check if Tor is installed
 check_tor_installation() {
     if command -v tor >/dev/null 2>&1; then
-        print_colored "$GREEN" "✅ Tor is already installed"
+        print_colored "$HTB_GREEN" "✅ Tor is already installed"
+        sleep 1.5  # Give user time to read the message
         return 0
     else
-        print_colored "$YELLOW" "⚠️  Tor is not installed"
+        print_colored "$HTB_YELLOW" "⚠️  Tor is not installed"
+        sleep 1.5
         return 1
     fi
 }
 
 # Function to install Tor
 install_tor() {
-    print_colored "$BLUE" "🔧 Installing Tor..."
+    print_colored "$HTB_NEON_BLUE" "🔧 Installing Tor..."
     
     case $PACKAGE_MANAGER in
         "apt")
@@ -178,7 +180,8 @@ install_tor() {
             ;;
     esac
     
-    print_colored "$GREEN" "✅ Tor installation completed"
+    print_colored "$HTB_GREEN" "✅ Tor installation completed"
+    sleep 2
 }
 
 # Function to find available directory with enumeration
@@ -239,11 +242,12 @@ manage_tor_service() {
 
 # Function to install web dependencies
 install_web_dependencies() {
-    print_colored "$BLUE" "📦 Installing web dependencies..."
+    print_colored "$HTB_NEON_BLUE" "📦 Installing web dependencies..."
     
     # Check if Python3 is installed
     if ! command -v python3 >/dev/null 2>&1; then
         verbose_log "Python3 not found, installing..."
+        print_colored "$HTB_NEON_BLUE" "🔧 Installing Python3..."
         case $PACKAGE_MANAGER in
             "apt")
                 install_packages python3
@@ -258,14 +262,18 @@ install_web_dependencies() {
                 install_packages python3
                 ;;
         esac
+        print_colored "$HTB_GREEN" "✅ Python3 installed successfully"
+        sleep 1.5 
     else
-        print_colored "$GREEN" "✅ Python3 is already installed"
+        print_colored "$HTB_GREEN" "✅ Python3 is already installed"
         verbose_log "Python3 found: $(python3 --version)"
+        sleep 1
     fi
     
     # Check if curl is installed (for server testing)
     if ! command -v curl >/dev/null 2>&1; then
         verbose_log "curl not found, installing..."
+        print_colored "$HTB_NEON_BLUE" "🔧 Installing curl..."
         case $PACKAGE_MANAGER in
             "apt")
                 install_packages curl
@@ -280,16 +288,19 @@ install_web_dependencies() {
                 install_packages curl
                 ;;
         esac
+        print_colored "$HTB_GREEN" "✅ curl installed successfully"
+        sleep 1.5
     else
         verbose_log "curl is already installed"
     fi
     
-    print_colored "$GREEN" "✅ Web dependencies installed"
+    print_colored "$HTB_GREEN" "✅ Web dependencies installed"
+    sleep 1.5
 }
 
 # Function to configure Tor hidden service
 configure_tor() {
-    print_colored "$BLUE" "⚙️  Configuring Tor hidden service..."
+    print_colored "$HTB_NEON_BLUE" "⚙️  Configuring Tor hidden service..."
     
     local service_name=$(basename "$HIDDEN_SERVICE_DIR")
     
@@ -300,12 +311,14 @@ configure_tor() {
     # Backup original torrc
     if [[ -f "$TORRC_FILE" ]] && [[ ! -f "$TORRC_FILE.backup" ]]; then
         cp "$TORRC_FILE" "$TORRC_FILE.backup"
-        print_colored "$GREEN" "✅ Backed up original torrc file"
+        print_colored "$HTB_GREEN" "✅ Backed up original torrc file"
+        sleep 1
     fi
     
     # Check if this hidden service is already configured
     if grep -q "HiddenServiceDir $HIDDEN_SERVICE_DIR" "$TORRC_FILE" 2>/dev/null; then
-        print_colored "$YELLOW" "⚠️  Hidden service already configured in torrc"
+        print_colored "$HTB_YELLOW" "⚠️  Hidden service already configured in torrc"
+        sleep 2
         return 0
     fi
     
@@ -323,12 +336,13 @@ HiddenServiceDir $HIDDEN_SERVICE_DIR/
 HiddenServicePort 80 127.0.0.1:$TEST_SITE_PORT
 EOF
     
-    print_colored "$GREEN" "✅ Tor configuration updated"
+    print_colored "$HTB_GREEN" "✅ Tor configuration updated"
+    sleep 2
 }
 
 # Function to start and enable Tor
 start_tor() {
-    print_colored "$BLUE" "🚀 Starting Tor service..."
+    print_colored "$HTB_NEON_BLUE" "🚀 Starting Tor service..."
     verbose_log "Service manager: $SERVICE_MANAGER"
     
     local service_name=$(basename "$HIDDEN_SERVICE_DIR")
@@ -342,22 +356,27 @@ start_tor() {
             # Start tor service
             verbose_log "Starting Tor service with systemctl..."
             if systemctl restart tor; then
-                print_colored "$GREEN" "✅ Tor service started successfully"
+                print_colored "$HTB_GREEN" "✅ Tor service started successfully"
                 verbose_log "Tor service started successfully"
+                sleep 1.5
             else
-                print_colored "$RED" "❌ Failed to start Tor service"
+                print_colored "$HTB_RED" "❌ Failed to start Tor service"
                 update_service_in_registry "$service_name" "status" "ERROR"
+                sleep 2
                 return 1
             fi
             
             if ask_yes_no "Do you want Tor to start automatically on system boot?"; then
                 verbose_log "Enabling Tor service for auto-start..."
+                print_colored "$HTB_NEON_BLUE" "🔧 Enabling Tor for auto-start..."
                 if systemctl enable tor 2>/dev/null; then
-                    print_colored "$GREEN" "✅ Tor enabled for auto-start"
+                    print_colored "$HTB_GREEN" "✅ Tor enabled for auto-start"
                     verbose_log "Tor enabled for auto-start"
+                    sleep 1.5
                 else
-                    print_colored "$YELLOW" "⚠️  Could not enable auto-start (non-critical)"
+                    print_colored "$HTB_YELLOW" "⚠️  Could not enable auto-start (non-critical)"
                     verbose_log "Could not enable auto-start"
+                    sleep 2
                 fi
             fi
             ;;
@@ -365,20 +384,24 @@ start_tor() {
             verbose_log "Using SysV service manager..."
             service tor stop 2>/dev/null || true
             if service tor start; then
-                print_colored "$GREEN" "✅ Tor service started successfully"
+                print_colored "$HTB_GREEN" "✅ Tor service started successfully"
                 verbose_log "Tor service started with SysV"
+                sleep 1.5
             else
-                print_colored "$RED" "❌ Failed to start Tor service"
+                print_colored "$HTB_RED" "❌ Failed to start Tor service"
                 update_service_in_registry "$service_name" "status" "ERROR"
+                sleep 2
                 return 1
             fi
-            print_colored "$YELLOW" "⚠️  Auto-start configuration varies by system"
+            print_colored "$HTB_YELLOW" "⚠️  Auto-start configuration varies by system"
+            sleep 2
             ;;
     esac
     
     # Wait for Tor to generate the hidden service
-    print_colored "$BLUE" "⏳ Waiting for Tor to generate hidden service..."
+    print_colored "$HTB_NEON_BLUE" "⏳ Waiting for Tor to generate hidden service..."
     verbose_log "Waiting for hostname file: $HIDDEN_SERVICE_DIR/hostname"
+    sleep 1
     
     # Check if hidden service directory was created
     local count=0
@@ -394,8 +417,9 @@ start_tor() {
         # Check if Tor is still running
         if ! pgrep -x tor >/dev/null; then
             echo
-            print_colored "$RED" "❌ Tor process died during startup"
+            print_colored "$HTB_RED" "❌ Tor process died during startup"
             update_service_in_registry "$service_name" "status" "ERROR"
+            sleep 2
             return 1
         fi
     done
@@ -405,25 +429,27 @@ start_tor() {
         local onion_addr
         onion_addr=$(cat "$HIDDEN_SERVICE_DIR/hostname")
         
-        print_colored "$GREEN" "✅ Hidden service generated successfully"
+        print_colored "$HTB_GREEN" "✅ Hidden service generated successfully"
         verbose_log "Hostname file found: $HIDDEN_SERVICE_DIR/hostname"
         verbose_log "Generated .onion address: $onion_addr"
-        
+        sleep 2
+        print_colored "$HTB_GREEN" "🎉 Your hidden service is available at: $onion_addr"
         # Update registry with onion address and active status
         update_service_in_registry "$service_name" "onion_address" "$onion_addr"
         update_service_in_registry "$service_name" "status" "ACTIVE"
         
         return 0
     else
-        print_colored "$RED" "❌ Failed to generate hidden service after ${max_wait} attempts"
+        print_colored "$HTB_RED" "❌ Failed to generate hidden service after ${max_wait} attempts"
         update_service_in_registry "$service_name" "status" "ERROR"
+        sleep 3
         return 1
     fi
 }
 
 # Function to create test website
 create_test_website() {
-    print_colored "$BLUE" "🌐 Creating test website..."
+    print_colored "$HTB_NEON_BLUE" "🌐 Creating test website..."
     
     # Create directory
     mkdir -p "$TEST_SITE_DIR"
@@ -526,8 +552,9 @@ EOF
     
     chmod +x "$TEST_SITE_DIR/server.py"
     
-    print_colored "$GREEN" "✅ Test website created at $TEST_SITE_DIR"
+    print_colored "$HTB_GREEN" "✅ Test website created at $TEST_SITE_DIR"
     verbose_log "Website created with port $TEST_SITE_PORT"
+    sleep 1.5
 }
 
 # Function to setup dynamic paths and ports
@@ -563,22 +590,22 @@ setup_dynamic_config() {
     done
     TEST_SITE_PORT="$test_port"
     
-    # Set test site directory
+    # Set test site directory (but don't create it yet)
     TEST_SITE_DIR="$TEST_SITE_BASE_DIR/$service_name"
     
     verbose_log "Generated service configuration:"
     verbose_log "  Service name: $service_name"
     verbose_log "  Hidden service dir: $HIDDEN_SERVICE_DIR"
     verbose_log "  Port: $TEST_SITE_PORT"
-    verbose_log "  Website dir: $TEST_SITE_DIR"
+    verbose_log "  Website dir (potential): $TEST_SITE_DIR"
     
     print_colored "$GREEN" "✅ Service name: $service_name"
     print_colored "$GREEN" "✅ Hidden service directory: $HIDDEN_SERVICE_DIR"
     print_colored "$GREEN" "✅ Local port: $TEST_SITE_PORT"
     print_colored "$GREEN" "✅ Website directory: $TEST_SITE_DIR"
     
-    # Add to registry (initially with inactive status)
-    add_service_to_registry "$service_name" "$HIDDEN_SERVICE_DIR" "$TEST_SITE_PORT" "" "$TEST_SITE_DIR" "INACTIVE"
+    # Add to registry (initially with inactive status and no website directory)
+    add_service_to_registry "$service_name" "$HIDDEN_SERVICE_DIR" "$TEST_SITE_PORT" "" "" "INACTIVE"
     
     sleep 2
 }
@@ -600,6 +627,15 @@ show_results() {
         local onion_address
         onion_address=$(cat "$HIDDEN_SERVICE_DIR/hostname")
         
+        # Get service info from registry to check if website was set up
+        local service_info
+        service_info=$(grep "^$service_name|" "$SERVICES_FILE" 2>/dev/null)
+        local website_dir=""
+        if [[ -n "$service_info" ]]; then
+            IFS='|' read -r name dir port onion website status created <<< "$service_info"
+            website_dir="$website"
+        fi
+        
         print_colored "$GREEN" "🎉 Setup Complete!"
         echo
         print_colored "$PURPLE" "╔══════════════════════════════════════════════════════════════════╗"
@@ -614,15 +650,25 @@ show_results() {
         print_colored "$YELLOW" "🌐 Onion Address: $onion_address"
         print_colored "$YELLOW" "🔌 Local Port: $TEST_SITE_PORT"
         print_colored "$YELLOW" "📁 Service Directory: $HIDDEN_SERVICE_DIR"
-        print_colored "$YELLOW" "🌍 Website Directory: $TEST_SITE_DIR"
+        
+        # Only show website directory if it was actually set up
+        if [[ -n "$website_dir" ]] && [[ -d "$website_dir" ]]; then
+            print_colored "$YELLOW" "🌍 Website Directory: $website_dir"
+        fi
+        
         echo
         print_colored "$CYAN"  "To access your site:"
         print_colored "$WHITE" "1. Open Tor Browser"
-        print_colored "$WHITE" "2. Navigate to: http://$onion_address"
+        print_colored "$WHITE" "2. Navigate to: ${UNDERLINE}https://$onion_address${RESET}"
         echo
         print_colored "$CYAN"  "To manage your services:"
         print_colored "$WHITE" "• List all services: $0 --list"
-        print_colored "$WHITE" "• Start test server: cd $TEST_SITE_DIR && python3 server.py"
+        
+        # Only show test server command if website was set up
+        if [[ -n "$website_dir" ]] && [[ -d "$website_dir" ]]; then
+            print_colored "$WHITE" "• Start test server: cd $website_dir && python3 server.py"
+        fi
+        
         print_colored "$WHITE" "• Tor config: $TORRC_FILE"
         print_colored "$WHITE" "• Services registry: $SERVICES_FILE"
         echo

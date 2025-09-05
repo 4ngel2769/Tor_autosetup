@@ -544,11 +544,22 @@ main() {
     fi
     
     # Ask about test website
+    local setup_website=false
     if ask_yes_no "Do you want to set up a test website? (requires Python3)"; then
+        setup_website=true
         verbose_log "Setting up test website..."
         install_web_dependencies
         create_test_website
         start_test_server
+        
+        # Update registry with website directory
+        local service_name=$(basename "$HIDDEN_SERVICE_DIR")
+        update_service_in_registry "$service_name" "website_dir" "$TEST_SITE_DIR"
+    else
+        # Update registry to remove website directory since user declined
+        local service_name=$(basename "$HIDDEN_SERVICE_DIR")
+        update_service_in_registry "$service_name" "website_dir" ""
+        verbose_log "User declined test website setup"
     fi
     
     # Show results

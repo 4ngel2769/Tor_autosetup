@@ -15,9 +15,42 @@ WHITE='\033[1;37m'
 NC='\033[0m'
 GREY='\033[38;5;239m'
 LIME="\033[38;5;10m"
-#C_GREY23="\033[48;5;252m"
+DARK_GREEN="\033[38;5;22m"
+ORANGE="\033[38;5;208m"
+
+# HTB Color Palette
+HTB_GREEN="\033[38;5;82m"           # Bright neon green
+HTB_ORANGE="\033[38;5;214m"         # HTB signature orange
+HTB_PURPLE="\033[38;5;99m"          # Deep purple
+HTB_YELLOW="\033[38;5;226m"         # Bright yellow
+HTB_BLUE="\033[38;5;33m"            # Vivid blue
+HTB_RED="\033[38;5;196m"            # Bright red
+HTB_DARK_GREY="\033[38;5;240m"      # Dark grey for borders
+HTB_LIGHT_GREY="\033[38;5;250m"     # Light grey for text
+HTB_NEON_BLUE="\033[38;5;51m"       # Neon blue
+HTB_MATRIX_GREEN="\033[38;5;46m"    # Matrix-style green
 BLURPLE="\033[38;5;63m"
+
+# Pastel Soft Color Palette
+PASTEL_GREEN="\033[38;5;120m"
+PASTEL_ORANGE="\033[38;5;215m"
+PASTEL_PURPLE="\033[38;5;141m"
+PASTEL_YELLOW="\033[38;5;229m"
+PASTEL_BLUE="\033[38;5;117m"
+PASTEL_RED="\033[38;5;203m"
+PASTEL_CYAN="\033[38;5;159m"
+PASTEL_PINK="\033[38;5;218m"
+PASTEL_GREY="\033[38;5;246m"
+PASTEL_DARK_GREY="\033[38;5;240m"
+PASTEL_LIGHT_GREY="\033[38;5;250m"
+
+
 # DARKOLIVEGREEN3="\033[48;5;149m"
+
+# Text styles
+UNDERLINE="\033[4m"
+BOLD="\033[1m"
+RESET="\033[0m"
 
 # Global flags
 VERBOSE=false
@@ -44,7 +77,7 @@ SERVICE_MANAGER=""
 # Function to print verbose output
 verbose_log() {
     if [[ "$VERBOSE" == true ]]; then
-        print_colored "$CYAN" "[VERBOSE] $1"
+        print_colored "$HTB_NEON_BLUE" "[VERBOSE] $1"
     fi
 }
 
@@ -65,8 +98,8 @@ generate_random_string() {
 check_root() {
     verbose_log "Checking if running as root..."
     if [[ $EUID -ne 0 ]]; then
-        print_colored "$RED" "❌ This script must be run as root!"
-        print_colored "$YELLOW" "Please run: sudo $0"
+        print_colored "$HTB_RED" "❌ This script must be run as root!"
+        print_colored "$HTB_YELLOW" "Please run: sudo $0"
         exit 1
     fi
     verbose_log "✅ Running as root"
@@ -75,13 +108,17 @@ check_root() {
 # Function to print header
 print_header() {
     clear
-    print_colored "$PURPLE" "╔══════════════════════════════════════════════════════════════╗"
-    print_colored "$PURPLE" "║                   Tor Hidden Service Setup                   ║"
-    print_colored "$PURPLE" "║                    Automated Installation                    ║"
-    print_colored "$PURPLE" "╚══════════════════════════════════════════════════════════════╝"
+    echo
+    print_colored "$HTB_DARK_GREY" "    ╔═══════════════════════════════════════════════════════════════╗"
+    print_colored "$HTB_DARK_GREY" "    ║$(echo -e "$HTB_GREEN                    Tor Hidden Service Setup                   $HTB_DARK_GREY")║"
+    print_colored "$HTB_DARK_GREY" "    ║$(echo -e "$HTB_ORANGE                     Automated Deployment                      $HTB_DARK_GREY")║"
+    # print_colored "$HTB_DARK_GREY" "    ╠═══════════════════════════════════════════════════════════════╣"
+    # print_colored "$HTB_DARK_GREY" "    ║$(echo -e "${HTB_MATRIX_GREEN}            [▓▓▓]${HTB_LIGHT_GREY} ANONYMITY ${HTB_MATRIX_GREEN}▓${HTB_LIGHT_GREY} SECURITY ${HTB_MATRIX_GREEN}▓${HTB_LIGHT_GREY} PRIVACY ${HTB_MATRIX_GREEN}[▓▓▓]           ${HTB_PURPLE}")║"
+    print_colored "$HTB_DARK_GREY" "    ╚═══════════════════════════════════════════════════════════════╝"
     echo
     if [[ "$VERBOSE" == true ]]; then
-        print_colored "$CYAN" "[VERBOSE MODE ENABLED]"
+        print_colored "$HTB_NEON_BLUE" "    [VERBOSE MODE ENABLED] - Enhanced logging active"
         echo
     fi
 }
+
