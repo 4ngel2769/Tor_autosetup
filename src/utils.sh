@@ -117,7 +117,7 @@ print_header() {
     print_colored "$HTB_DARK_GREY" "    ╚═══════════════════════════════════════════════════════════════╝"
     echo
     if [[ "$VERBOSE" == true ]]; then
-        print_colored "$HTB_NEON_BLUE" "    [VERBOSE MODE ENABLED] - Enhanced logging active"
+        print_colored "$HTB_NEON_BLUE" "    [VERBOSE MODE ENABLED]    "
         echo
     fi
 }
