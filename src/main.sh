@@ -100,7 +100,7 @@ list_services() {
         esac
         
         # Print with custom colors
-        printf "${LIME}%-30s${NC} ${BLURPLE}%-6s${NC} ${WHITE}%-50s${NC} ${status_color_bg}%-8s${NC} ${managed_color_bg}%-10s${NC} ${web_color_bg}%-12s${NC}\n" "$name" "$port" "$display_onion" "$status" "$managed" "$web_status"
+        printf "${GREEN}%-30s${NC} ${BLURPLE}%-6s${NC} ${WHITE}%-50s${NC} ${status_color_bg}%-8s${NC} ${managed_color_bg}%-10s${NC} ${web_color_bg}%-12s${NC}\n" "$name" "$port" "$display_onion" "$status" "$managed" "$web_status"
         
         # Add verbose information if enabled
         if [[ "$VERBOSE" == true ]]; then
