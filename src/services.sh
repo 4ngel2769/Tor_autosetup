@@ -2,8 +2,6 @@
 
 # shellcheck source=utils.sh
 source "$(dirname "${BASH_SOURCE[0]}")/utils.sh"
-# shellcheck source=funcs.sh
-source "$(dirname "${BASH_SOURCE[0]}")/funcs.sh"
 
 # services.sh - Service management functions
 # This file contains all functions related to managing Tor hidden services

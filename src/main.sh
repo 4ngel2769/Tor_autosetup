@@ -28,6 +28,7 @@ show_usage() {
     echo "  -h, --help              Show this help message"
     echo ""
     echo "Examples:"
+    echo "  $0                                  # Create a new hidden service"
     echo "  $0 --list                           # List all services with real-time status"
     echo "  $0 --test                           # Test all services comprehensively"
     echo "  $0 --stop hidden_service_abc123def  # Stop web server for specific service"
@@ -502,11 +503,6 @@ parse_args() {
     done
 }
 
-# Rest of the main setup functions (configure_tor, start_tor, etc.)
-# [Include the remaining functions from your original script here]
-# These would include: setup_dynamic_config, configure_tor, start_tor, 
-# create_test_website, show_results, and the main() function
-
 # Main installation flow
 main() {
     # Parse command line arguments first
@@ -516,11 +512,48 @@ main() {
     check_root
     detect_system
     
-    # Show existing services
+    # Initialize service tracking for the installation flow
     init_service_tracking
-    list_services
     
-    # [Rest of your main logic here]
+    # Setup dynamic configuration
+    setup_dynamic_config
+    
+    # Confirmation
+    if ! ask_yes_no "Do you want to proceed with creating this new Tor hidden service?"; then
+        print_colored "$YELLOW" "Installation cancelled by user"
+        verbose_log "Installation cancelled by user"
+        exit 0
+    fi
+    
+    # Install Tor if needed
+    verbose_log "Checking Tor installation..."
+    if ! check_tor_installation; then
+        verbose_log "Installing Tor..."
+        install_tor
+    fi
+    
+    # Configure Tor
+    verbose_log "Configuring Tor..."
+    configure_tor
+    
+    # Start Tor
+    verbose_log "Starting Tor service..."
+    if ! start_tor; then
+        print_colored "$RED" "❌ Failed to start Tor service properly"
+        exit 1
+    fi
+    
+    # Ask about test website
+    if ask_yes_no "Do you want to set up a test website? (requires Python3)"; then
+        verbose_log "Setting up test website..."
+        install_web_dependencies
+        create_test_website
+        start_test_server
+    fi
+    
+    # Show results
+    verbose_log "Displaying final results..."
+    show_results
     
     print_colored "$GREEN" "✨ All done! Enjoy your Tor hidden service!"
     verbose_log "Script completed successfully"
