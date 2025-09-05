@@ -14,7 +14,12 @@ BLUE='\033[0;34m'
 PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 WHITE='\033[1;37m'
-NC='\033[0m' # No Color
+NC='\033[0m'
+GREY='\033[38;5;239m'
+LIME="\033[38;5;10m"
+#C_GREY23="\033[48;5;252m"
+BLURPLE="\033[38;5;63m"
+DARKOLIVEGREEN3="\033[48;5;149m"
 
 # Global flags
 VERBOSE=false
@@ -329,7 +334,7 @@ list_services() {
         return 0
     fi
     
-    printf "%-20s %-6s %-50s %-8s %-10s %-12s\n" "SERVICE NAME" "PORT" "ONION ADDRESS" "STATUS" "MANAGED" "WEB SERVER"
+    printf "%-30s %-6s %-50s %-8s %-10s %-12s\n" "SERVICE NAME" "PORT" "ONION ADDRESS" "STATUS" "MANAGED" "WEB SERVER"
     print_colored $WHITE "──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────"
     
     while IFS='|' read -r name dir port onion website status created; do
@@ -343,33 +348,41 @@ list_services() {
             display_onion="${onion:0:42}..."
         fi
         
-        local color="$WHITE"
+        # Status color (keep current logic but add grey23 background)
+        local status_color_bg=""
         case "$status" in
-            "ACTIVE") color="$GREEN" ;;
-            "INACTIVE") color="$YELLOW" ;;
-            "ERROR") color="$RED" ;;
+            "ACTIVE") status_color_bg="${GREEN}" ;;
+            "INACTIVE") status_color_bg="${RED}" ;;
+            "ERROR") status_color_bg="${RED}" ;;
+            *) status_color_bg="${WHITE}" ;;
         esac
         
+        # Managed color
         local managed="NO"
+        local managed_color_bg=""
         if is_script_managed "$name"; then
             managed="YES"
+            managed_color_bg="${WHITE}"
+        else
+            managed_color_bg="${GREY}"  # Dark grey text + dark olive green background
         fi
         
         # Get comprehensive web server status
         local web_status=$(get_web_server_status "$name" "$port" "$website")
-        local web_color="$WHITE"
+        local web_color_bg=""
         
         case "$web_status" in
-            "RUNNING") web_color="$GREEN" ;;
-            "STOPPED") web_color="$YELLOW" ;;
-            "UNRESPONSIVE") web_color="$RED" ;;
-            "NOT_LISTENING") web_color="$RED" ;;
-            "NOT_RESPONDING") web_color="$RED" ;;
-            "N/A") web_color="$WHITE" ;;
-            *) web_color="$WHITE" ;;
+            "RUNNING") web_color_bg="${GREEN}" ;;
+            "STOPPED") web_color_bg="${YELLOW}" ;;
+            "UNRESPONSIVE") web_color_bg="${RED}" ;;
+            "NOT_LISTENING") web_color_bg="${RED}" ;;
+            "NOT_RESPONDING") web_color_bg="${RED}" ;;
+            "N/A") web_color_bg="${WHITE}" ;;
+            *) web_color_bg="${WHITE}" ;;
         esac
         
-        printf "${color}%-20s %-6s %-50s %-8s${NC} ${WHITE}%-10s${NC} ${web_color}%-12s${NC}\n" "$name" "$port" "$display_onion" "$status" "$managed" "$web_status"
+        # Print with custom colors and backgrounds for specific fields
+        printf "${LIME}%-30s${NC} ${BLURPLE}%-6s${NC} ${WHITE}%-50s${NC} ${status_color_bg}%-8s${NC} ${managed_color_bg}%-10s${NC} ${web_color_bg}%-12s${NC}\n" "$name" "$port" "$display_onion" "$status" "$managed" "$web_status"
         
         # Add verbose information if enabled
         if [[ "$VERBOSE" == true ]]; then
@@ -1141,6 +1154,148 @@ show_results() {
         print_colored $WHITE "4. Wait 30 seconds then check: sudo cat $HIDDEN_SERVICE_DIR/hostname"
         print_colored $WHITE "5. Check permissions: sudo ls -la $HIDDEN_SERVICE_BASE_DIR"
     fi
+}
+
+# New function to check if web server is actually running and responding
+check_web_server_status() {
+    local port="$1"
+    local timeout=3
+    
+    # Check if port is listening
+    if ! ss -tlpn 2>/dev/null | grep -q ":$port "; then
+        echo "NOT_LISTENING"
+        return 1
+    fi
+    
+    # Try to curl the service with a short timeout
+    if curl -s --connect-timeout "$timeout" --max-time "$timeout" "http://127.0.0.1:$port" >/dev/null 2>&1; then
+        echo "RUNNING"
+        return 0
+    else
+        echo "NOT_RESPONDING"
+        return 1
+    fi
+}
+
+# New function to get comprehensive web server status
+get_web_server_status() {
+    local service_name="$1"
+    local port="$2"
+    local website_dir="$3"
+    
+    # For non-script-managed services, check if port is active
+    if ! is_script_managed "$service_name"; then
+        if [[ -n "$port" ]]; then
+            check_web_server_status "$port"
+        else
+            echo "N/A"
+        fi
+        return
+    fi
+    
+    # For script-managed services, check both PID and actual response
+    local pid_file=$(get_pid_file "$service_name")
+    local pid_status="UNKNOWN"
+    local web_status="UNKNOWN"
+    
+    # Check PID file
+    if [[ -f "$pid_file" ]]; then
+        local pid=$(cat "$pid_file" 2>/dev/null)
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            pid_status="PID_ALIVE"
+        else
+            pid_status="PID_DEAD"
+            rm -f "$pid_file" 2>/dev/null
+        fi
+    else
+        pid_status="NO_PID"
+    fi
+    
+    # Check actual web server response
+    if [[ -n "$port" ]]; then
+        web_status=$(check_web_server_status "$port")
+    fi
+    
+    # Determine final status
+    case "$web_status" in
+        "RUNNING")
+            echo "RUNNING"
+            ;;
+        "NOT_LISTENING")
+            echo "STOPPED"
+            ;;
+        "NOT_RESPONDING")
+            if [[ "$pid_status" == "PID_ALIVE" ]]; then
+                echo "UNRESPONSIVE"
+            else
+                echo "STOPPED"
+            fi
+            ;;
+        *)
+            echo "UNKNOWN"
+            ;;
+    esac
+}
+
+# Add the test_all_services function that was referenced in parse_args:
+test_all_services() {
+    print_colored $BLUE "🧪 Testing all hidden services..."
+    
+    # Sync registry first
+    sync_registry_status
+    
+    if [[ ! -f "$SERVICES_FILE" ]] || [[ ! -s "$SERVICES_FILE" ]]; then
+        print_colored $YELLOW "No services found to test."
+        return 0
+    fi
+    
+    local tested=0
+    local active=0
+    local responsive=0
+    
+    while IFS='|' read -r name dir port onion website status created; do
+        # Skip comments and empty lines
+        [[ "$name" =~ ^#.*$ ]] || [[ -z "$name" ]] && continue
+        
+        ((tested++))
+        
+        print_colored $CYAN "Testing $name..."
+        
+        # Check Tor service status
+        if [[ "$status" == "ACTIVE" ]]; then
+            ((active++))
+            print_colored $GREEN "  ✅ Tor service: ACTIVE ($onion)"
+        else
+            print_colored $YELLOW "  ⚠️ Tor service: $status"
+        fi
+        
+        # Check web server if port is available
+        if [[ -n "$port" ]]; then
+            local web_status=$(check_web_server_status "$port")
+            case "$web_status" in
+                "RUNNING")
+                    ((responsive++))
+                    print_colored $GREEN "  ✅ Web server: RUNNING on port $port"
+                    ;;
+                "NOT_LISTENING")
+                    print_colored $YELLOW "  ⚠️ Web server: NOT LISTENING on port $port"
+                    ;;
+                "NOT_RESPONDING")
+                    print_colored $RED "  ❌ Web server: NOT RESPONDING on port $port"
+                    ;;
+            esac
+        else
+            print_colored $WHITE "  ℹ️ Web server: No port configured"
+        fi
+        
+        echo
+        
+    done < "$SERVICES_FILE"
+    
+    print_colored $CYAN "📊 Test Summary:"
+    print_colored $WHITE "• Total services: $tested"
+    print_colored $WHITE "• Active Tor services: $active"
+    print_colored $WHITE "• Responsive web servers: $responsive"
 }
 
 # Main installation flow
