@@ -696,8 +696,8 @@ create_test_website() {
     # Create directory
     mkdir -p "$TEST_SITE_DIR"
     
-    # Create simple HTML page
-    cat > "$TEST_SITE_DIR/index.html" << 'EOF'
+    # Create simple HTML page with dynamic port
+    cat > "$TEST_SITE_DIR/index.html" << EOF
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -748,7 +748,7 @@ create_test_website() {
         
         <div class="info">
             <h3>📍 Service Information:</h3>
-            <p><strong>Local Port:</strong> 5000</p>
+            <p><strong>Local Port:</strong> $TEST_SITE_PORT</p>
             <p><strong>Access:</strong> Via Tor Browser only</p>
             <p><strong>Security:</strong> Traffic is automatically encrypted through Tor</p>
         </div>
@@ -757,7 +757,7 @@ create_test_website() {
             <h3>🔧 Next Steps:</h3>
             <ul style="text-align: left;">
                 <li>Replace this test page with your actual website</li>
-                <li>Configure your web application to run on port 5000</li>
+                <li>Configure your web application to run on port $TEST_SITE_PORT</li>
                 <li>Share your .onion address securely with intended users</li>
                 <li>Consider additional security measures for production use</li>
             </ul>
@@ -769,14 +769,14 @@ create_test_website() {
 </html>
 EOF
     
-    # Create simple Python web server script
-    cat > "$TEST_SITE_DIR/server.py" << 'EOF'
+    # Create simple Python web server script with dynamic port
+    cat > "$TEST_SITE_DIR/server.py" << EOF
 #!/usr/bin/env python3
 import http.server
 import socketserver
 import os
 
-PORT = 5000
+PORT = $TEST_SITE_PORT
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -795,74 +795,21 @@ EOF
     chmod +x "$TEST_SITE_DIR/server.py"
     
     print_colored $GREEN "✅ Test website created at $TEST_SITE_DIR"
+    verbose_log "Website created with port $TEST_SITE_PORT"
 }
 
-# Function to install web server dependencies
-install_web_dependencies() {
-    print_colored $BLUE "📦 Installing web server dependencies..."
-    
-    case $PACKAGE_MANAGER in
-        "apt")
-            install_packages python3
-            ;;
-        "yum"|"dnf")
-            install_packages python3
-            ;;
-        "pacman")
-            install_packages python
-            ;;
-        "zypper")
-            install_packages python3
-            ;;
-    esac
-    
-    print_colored $GREEN "✅ Web server dependencies installed"
-}
-
-# Function to start test web server
+# Function to start test web server (simplified since port is already correct)
 start_test_server() {
     print_colored $BLUE "🚀 Starting test web server on port $TEST_SITE_PORT..."
     
     # Double-check if port is available
     if ss -tlpn | grep -q ":$TEST_SITE_PORT "; then
         print_colored $YELLOW "⚠️  Port $TEST_SITE_PORT became unavailable"
-        
-        # Find a new port
-        local old_port=$TEST_SITE_PORT
-        local existing_ports=()
-        
-        # Extract all hidden service ports from torrc
-        while read -r line; do
-            existing_ports+=("$line")
-        done < <(grep -oP 'HiddenServicePort\s+\d+\s+127.0.0.1:\K\d+' "$TORRC_FILE" 2>/dev/null)
-        
-        # Find next available port
-        local test_port=$((TEST_SITE_PORT + 1))
-        while ss -tlpn | grep -q ":$test_port " || check_if_in_array "$test_port" "${existing_ports[@]}"; do
-            ((test_port++))
-            if [[ $test_port -gt 65535 ]]; then
-                print_colored $RED "❌ No available ports found"
-                return 1
-            fi
-        done
-        
-        TEST_SITE_PORT=$test_port
-        print_colored $CYAN "📍 Using alternative port: $TEST_SITE_PORT"
-        
-        # Update the server.py file with new port
-        sed -i "s/PORT = [0-9]*/PORT = $TEST_SITE_PORT/" "$TEST_SITE_DIR/server.py"
-        
-        # Update torrc with new port - be careful to only update our entry
-        sed -i "s|HiddenServicePort 80 127.0.0.1:$old_port|HiddenServicePort 80 127.0.0.1:$TEST_SITE_PORT|" "$TORRC_FILE"
-        
-        # Restart Tor to apply new configuration
-        print_colored $BLUE "🔄 Restarting Tor with updated port..."
-        manage_tor_service restart
-        sleep 3
+        print_colored $RED "❌ Cannot start server - port conflict detected"
+        print_colored $CYAN "You can manually start it later with:"
+        print_colored $WHITE "cd $TEST_SITE_DIR && python3 server.py"
+        return 1
     fi
-    
-    # Update HTML with correct port
-    sed -i "s|<p><strong>Local Port:</strong> [0-9]*</p>|<p><strong>Local Port:</strong> $TEST_SITE_PORT</p>|" "$TEST_SITE_DIR/index.html"
     
     # Start server in background
     cd "$TEST_SITE_DIR" || exit
@@ -873,12 +820,14 @@ start_test_server() {
     # Check if server started successfully
     if curl -s http://127.0.0.1:$TEST_SITE_PORT >/dev/null 2>&1; then
         print_colored $GREEN "✅ Test web server started successfully on port $TEST_SITE_PORT"
+        verbose_log "Web server is running on port $TEST_SITE_PORT"
         return 0
     else
         print_colored $YELLOW "⚠️  Server may not have started correctly"
         print_colored $CYAN "You can manually start it with:"
         print_colored $WHITE "cd $TEST_SITE_DIR && python3 server.py"
         print_colored $CYAN "Check logs at: $TEST_SITE_DIR/server.log"
+        verbose_log "Web server failed to start on port $TEST_SITE_PORT"
         return 1
     fi
 }
