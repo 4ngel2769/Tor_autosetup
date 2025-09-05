@@ -689,6 +689,56 @@ start_tor() {
     fi
 }
 
+# Function to install web dependencies
+install_web_dependencies() {
+    print_colored $BLUE "📦 Installing web dependencies..."
+    
+    # Check if Python3 is installed
+    if ! command -v python3 >/dev/null 2>&1; then
+        verbose_log "Python3 not found, installing..."
+        case $PACKAGE_MANAGER in
+            "apt")
+                install_packages python3
+                ;;
+            "yum"|"dnf")
+                install_packages python3
+                ;;
+            "pacman")
+                install_packages python
+                ;;
+            "zypper")
+                install_packages python3
+                ;;
+        esac
+    else
+        print_colored $GREEN "✅ Python3 is already installed"
+        verbose_log "Python3 found: $(python3 --version)"
+    fi
+    
+    # Check if curl is installed (for server testing)
+    if ! command -v curl >/dev/null 2>&1; then
+        verbose_log "curl not found, installing..."
+        case $PACKAGE_MANAGER in
+            "apt")
+                install_packages curl
+                ;;
+            "yum"|"dnf")
+                install_packages curl
+                ;;
+            "pacman")
+                install_packages curl
+                ;;
+            "zypper")
+                install_packages curl
+                ;;
+        esac
+    else
+        verbose_log "curl is already installed"
+    fi
+    
+    print_colored $GREEN "✅ Web dependencies installed"
+}
+
 # Function to create test website
 create_test_website() {
     print_colored $BLUE "🌐 Creating test website..."
