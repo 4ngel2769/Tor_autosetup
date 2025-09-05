@@ -1776,8 +1776,6 @@ main() {
     verbose_log "Script completed successfully"
 }
 
-# Trap to handle cleanup
 trap 'print_colored $RED "Script interrupted"; exit 1' INT TERM
 
-# Run main function
 main "$@"
