@@ -19,7 +19,7 @@ GREY='\033[38;5;239m'
 LIME="\033[38;5;10m"
 #C_GREY23="\033[48;5;252m"
 BLURPLE="\033[38;5;63m"
-DARKOLIVEGREEN3="\033[48;5;149m"
+# DARKOLIVEGREEN3="\033[48;5;149m"
 
 # Global flags
 VERBOSE=false
@@ -348,7 +348,7 @@ list_services() {
             display_onion="${onion:0:42}..."
         fi
         
-        # Status color (keep current logic but add grey23 background)
+        # Status color
         local status_color_bg=""
         case "$status" in
             "ACTIVE") status_color_bg="${GREEN}" ;;
@@ -364,7 +364,7 @@ list_services() {
             managed="YES"
             managed_color_bg="${WHITE}"
         else
-            managed_color_bg="${GREY}"  # Dark grey text + dark olive green background
+            managed_color_bg="${GREY}"
         fi
         
         # Get comprehensive web server status
@@ -489,18 +489,20 @@ setup_dynamic_config() {
 
 # Function to show usage
 show_usage() {
-    echo "Usage: $0 [-V|--verbose] [-l|--list] [-t|--test] [-s|--stop SERVICE_NAME] [-h|--help]"
+    echo "Usage: $0 [-V|--verbose] [-l|--list] [-t|--test] [-s|--stop SERVICE_NAME] [-r|--remove SERVICE_NAME] [-h|--help]"
     echo "Options:"
     echo "  -V, --verbose           Enable verbose output for debugging"
     echo "  -l, --list              List all available hidden services with status"
     echo "  -t, --test              Test all services (Tor + web server status)"
     echo "  -s, --stop SERVICE_NAME Stop web server for specific service"
+    echo "  -r, --remove SERVICE_NAME Remove hidden service PERMANENTLY"
     echo "  -h, --help              Show this help message"
     echo ""
     echo "Examples:"
     echo "  $0 --list                           # List all services with real-time status"
     echo "  $0 --test                           # Test all services comprehensively"
     echo "  $0 --stop hidden_service_abc123def  # Stop web server for specific service"
+    echo "  $0 --remove hidden_service_abc123def # PERMANENTLY remove hidden service"
     echo "  $0 -V --list                        # Verbose listing with detailed info"
     exit 0
 }
@@ -531,6 +533,15 @@ parse_args() {
                 fi
                 init_service_tracking
                 stop_service_web_server "$2"
+                exit $?
+                ;;
+            -r|--remove)
+                if [[ -z "$2" ]]; then
+                    print_colored $RED "❌ Service name required for --remove option"
+                    show_usage
+                fi
+                init_service_tracking
+                remove_hidden_service "$2"
                 exit $?
                 ;;
             -h|--help)
