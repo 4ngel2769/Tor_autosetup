@@ -119,8 +119,13 @@ scan_existing_services() {
             # Check if service already exists in registry
             if ! grep -q "^$service_name|" "$SERVICES_FILE" 2>/dev/null; then
                 local created_date=$(date '+%Y-%m-%d %H:%M:%S')
-                echo "$service_name|$current_dir|$current_port|$onion_address||$status|$created_date" >> "$temp_file"
-                verbose_log "Found existing service: $service_name ($current_dir:$current_port)"
+                local website_dir=""
+                # Only set website_dir for script-managed services
+                if is_script_managed "$service_name"; then
+                    website_dir="$TEST_SITE_BASE_DIR/$service_name"
+                fi
+                echo "$service_name|$current_dir|$current_port|$onion_address|$website_dir|$status|$created_date" >> "$temp_file"
+                verbose_log "Found existing service: $service_name ($current_dir:$current_port) [Managed: $(is_script_managed "$service_name" && echo "YES" || echo "NO")]"
             fi
             
             current_dir=""
@@ -175,8 +180,147 @@ update_service_in_registry() {
     verbose_log "Updated service $service_name: $field=$value"
 }
 
+# Function to sync registry with actual service status
+sync_registry_status() {
+    verbose_log "Syncing registry with actual service status..."
+    
+    local temp_file=$(mktemp)
+    local updated=false
+    
+    while IFS='|' read -r name dir port onion website status created; do
+        # Skip comments and empty lines
+        [[ "$name" =~ ^#.*$ ]] || [[ -z "$name" ]] && continue
+        
+        local new_status="$status"
+        local new_onion="$onion"
+        
+        # Check if hostname file exists and read onion address
+        if [[ -f "$dir/hostname" ]]; then
+            local actual_onion
+            actual_onion=$(cat "$dir/hostname" 2>/dev/null | tr -d '\n' | tr -d ' ')
+            
+            if [[ -n "$actual_onion" ]]; then
+                new_status="ACTIVE"
+                new_onion="$actual_onion"
+                if [[ "$status" != "ACTIVE" ]] || [[ "$onion" != "$actual_onion" ]]; then
+                    updated=true
+                    verbose_log "Updated $name: status=$new_status, onion=$actual_onion"
+                fi
+            fi
+        else
+            # Check if service is supposed to be active but hostname doesn't exist
+            if [[ "$status" == "ACTIVE" ]]; then
+                new_status="INACTIVE"
+                new_onion=""
+                updated=true
+                verbose_log "Updated $name: status=INACTIVE (hostname missing)"
+            fi
+        fi
+        
+        echo "$name|$dir|$port|$new_onion|$website|$new_status|$created"
+    done < "$SERVICES_FILE" > "$temp_file"
+    
+    mv "$temp_file" "$SERVICES_FILE"
+    
+    if [[ "$updated" == true ]]; then
+        verbose_log "Registry status synchronized"
+    fi
+}
+
+# Function to check if service is script-managed
+is_script_managed() {
+    local service_name="$1"
+    # Script-managed services follow pattern: hidden_service_[random]
+    [[ "$service_name" =~ ^hidden_service_[a-z0-9]{9}$ ]]
+}
+
+# Function to get PID file path for a service
+get_pid_file() {
+    local service_name="$1"
+    echo "$TORSTP_DIR/${service_name}.pid"
+}
+
+# Function to start server with PID tracking
+start_test_server() {
+    print_colored $BLUE "🚀 Starting test web server on port $TEST_SITE_PORT..."
+    
+    local service_name=$(basename "$HIDDEN_SERVICE_DIR")
+    local pid_file=$(get_pid_file "$service_name")
+    
+    # Double-check if port is available
+    if ss -tlpn | grep -q ":$TEST_SITE_PORT "; then
+        print_colored $YELLOW "⚠️  Port $TEST_SITE_PORT became unavailable"
+        print_colored $RED "❌ Cannot start server - port conflict detected"
+        print_colored $CYAN "You can manually start it later with:"
+        print_colored $WHITE "cd $TEST_SITE_DIR && python3 server.py"
+        return 1
+    fi
+    
+    # Start server in background and save PID
+    cd "$TEST_SITE_DIR" || exit
+    nohup python3 server.py > server.log 2>&1 &
+    local server_pid=$!
+    echo "$server_pid" > "$pid_file"
+    
+    sleep 2
+    
+    # Check if server started successfully
+    if curl -s http://127.0.0.1:$TEST_SITE_PORT >/dev/null 2>&1; then
+        print_colored $GREEN "✅ Test web server started successfully on port $TEST_SITE_PORT (PID: $server_pid)"
+        verbose_log "Web server is running on port $TEST_SITE_PORT with PID $server_pid"
+        return 0
+    else
+        print_colored $YELLOW "⚠️  Server may not have started correctly"
+        rm -f "$pid_file"
+        print_colored $CYAN "You can manually start it with:"
+        print_colored $WHITE "cd $TEST_SITE_DIR && python3 server.py"
+        print_colored $CYAN "Check logs at: $TEST_SITE_DIR/server.log"
+        verbose_log "Web server failed to start on port $TEST_SITE_PORT"
+        return 1
+    fi
+}
+
+# Function to stop web server for a specific service
+stop_web_server() {
+    local service_name="$1"
+    local pid_file=$(get_pid_file "$service_name")
+    
+    if [[ ! -f "$pid_file" ]]; then
+        print_colored $YELLOW "⚠️  No PID file found for service: $service_name"
+        return 1
+    fi
+    
+    local pid=$(cat "$pid_file")
+    
+    if [[ -z "$pid" ]]; then
+        print_colored $YELLOW "⚠️  Invalid PID in file for service: $service_name"
+        rm -f "$pid_file"
+        return 1
+    fi
+    
+    if kill -0 "$pid" 2>/dev/null; then
+        if kill "$pid" 2>/dev/null; then
+            print_colored $GREEN "✅ Stopped web server for $service_name (PID: $pid)"
+            rm -f "$pid_file"
+            return 0
+        else
+            print_colored $RED "❌ Failed to stop web server for $service_name (PID: $pid)"
+            return 1
+        fi
+    else
+        print_colored $YELLOW "⚠️  Process $pid for $service_name is not running"
+        rm -f "$pid_file"
+        return 1
+    fi
+}
+
 # Function to list available services
 list_services() {
+    print_colored $BLUE "🔍 Checking service status..."
+    
+    # Sync registry before listing
+    sync_registry_status
+    
     print_colored $CYAN "📋 Available Tor Hidden Services:"
     echo
     
@@ -185,8 +329,8 @@ list_services() {
         return 0
     fi
     
-    printf "%-20s %-10s %-60s %-8s\n" "SERVICE NAME" "PORT" "ONION ADDRESS" "STATUS"
-    print_colored $WHITE "────────────────────────────────────────────────────────────────────────────────────────────────"
+    printf "%-20s %-6s %-50s %-8s %-10s %-12s\n" "SERVICE NAME" "PORT" "ONION ADDRESS" "STATUS" "MANAGED" "WEB SERVER"
+    print_colored $WHITE "──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────"
     
     while IFS='|' read -r name dir port onion website status created; do
         # Skip comments and empty lines
@@ -195,8 +339,8 @@ list_services() {
         local display_onion="$onion"
         if [[ -z "$onion" ]]; then
             display_onion="<not generated>"
-        elif [[ ${#onion} -gt 50 ]]; then
-            display_onion="${onion:0:47}..."
+        elif [[ ${#onion} -gt 45 ]]; then
+            display_onion="${onion:0:42}..."
         fi
         
         local color="$WHITE"
@@ -206,9 +350,75 @@ list_services() {
             "ERROR") color="$RED" ;;
         esac
         
-        printf "${color}%-20s %-10s %-60s %-8s${NC}\n" "$name" "$port" "$display_onion" "$status"
+        local managed="NO"
+        if is_script_managed "$name"; then
+            managed="YES"
+        fi
+        
+        # Get comprehensive web server status
+        local web_status=$(get_web_server_status "$name" "$port" "$website")
+        local web_color="$WHITE"
+        
+        case "$web_status" in
+            "RUNNING") web_color="$GREEN" ;;
+            "STOPPED") web_color="$YELLOW" ;;
+            "UNRESPONSIVE") web_color="$RED" ;;
+            "NOT_LISTENING") web_color="$RED" ;;
+            "NOT_RESPONDING") web_color="$RED" ;;
+            "N/A") web_color="$WHITE" ;;
+            *) web_color="$WHITE" ;;
+        esac
+        
+        printf "${color}%-20s %-6s %-50s %-8s${NC} ${WHITE}%-10s${NC} ${web_color}%-12s${NC}\n" "$name" "$port" "$display_onion" "$status" "$managed" "$web_status"
+        
+        # Add verbose information if enabled
+        if [[ "$VERBOSE" == true ]]; then
+            verbose_log "Service $name details:"
+            verbose_log "  Directory: $dir"
+            verbose_log "  Port: $port"
+            verbose_log "  Website: $website"
+            verbose_log "  Hostname file: $dir/hostname"
+            if [[ -f "$dir/hostname" ]]; then
+                verbose_log "  Hostname content: $(cat "$dir/hostname" 2>/dev/null || echo 'ERROR reading file')"
+            fi
+        fi
+        
     done < "$SERVICES_FILE"
     echo
+    
+    print_colored $CYAN "Legend:"
+    print_colored $WHITE "• STATUS: Tor hidden service status (ACTIVE/INACTIVE/ERROR)"
+    print_colored $WHITE "• MANAGED: Created by this script (YES/NO)"
+    print_colored $WHITE "• WEB SERVER: Local web server status"
+    print_colored $GREEN "  - RUNNING: Server responding to requests"
+    print_colored $YELLOW "  - STOPPED: No server running on port"
+    print_colored $RED "  - UNRESPONSIVE: Process exists but not responding"
+    print_colored $RED "  - NOT_LISTENING: Port not listening"
+    print_colored $WHITE "  - N/A: Not applicable (external service)"
+}
+
+# Function to stop web server by service name
+stop_service_web_server() {
+    local service_name="$1"
+    
+    if [[ -z "$service_name" ]]; then
+        print_colored $RED "❌ Service name required"
+        return 1
+    fi
+    
+    # Check if service exists in registry
+    if ! grep -q "^$service_name|" "$SERVICES_FILE" 2>/dev/null; then
+        print_colored $RED "❌ Service '$service_name' not found"
+        return 1
+    fi
+    
+    # Check if service is script-managed
+    if ! is_script_managed "$service_name"; then
+        print_colored $RED "❌ Service '$service_name' is not managed by this script"
+        return 1
+    fi
+    
+    stop_web_server "$service_name"
 }
 
 # Function to setup dynamic paths and ports
@@ -266,11 +476,19 @@ setup_dynamic_config() {
 
 # Function to show usage
 show_usage() {
-    echo "Usage: $0 [-V|--verbose] [-l|--list] [-h|--help]"
+    echo "Usage: $0 [-V|--verbose] [-l|--list] [-t|--test] [-s|--stop SERVICE_NAME] [-h|--help]"
     echo "Options:"
-    echo "  -V, --verbose    Enable verbose output for debugging"
-    echo "  -l, --list       List all available hidden services"
-    echo "  -h, --help       Show this help message"
+    echo "  -V, --verbose           Enable verbose output for debugging"
+    echo "  -l, --list              List all available hidden services with status"
+    echo "  -t, --test              Test all services (Tor + web server status)"
+    echo "  -s, --stop SERVICE_NAME Stop web server for specific service"
+    echo "  -h, --help              Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $0 --list                           # List all services with real-time status"
+    echo "  $0 --test                           # Test all services comprehensively"
+    echo "  $0 --stop hidden_service_abc123def  # Stop web server for specific service"
+    echo "  $0 -V --list                        # Verbose listing with detailed info"
     exit 0
 }
 
@@ -288,6 +506,20 @@ parse_args() {
                 list_services
                 exit 0
                 ;;
+            -t|--test)
+                init_service_tracking
+                test_all_services
+                exit 0
+                ;;
+            -s|--stop)
+                if [[ -z "$2" ]]; then
+                    print_colored $RED "❌ Service name required for --stop option"
+                    show_usage
+                fi
+                init_service_tracking
+                stop_service_web_server "$2"
+                exit $?
+                ;;
             -h|--help)
                 show_usage
                 ;;
@@ -303,8 +535,8 @@ parse_args() {
 print_header() {
     clear
     print_colored $PURPLE "╔══════════════════════════════════════════════════════════════╗"
-    print_colored $PURPLE "║                    Tor Hidden Service Setup                  ║"
-    print_colored $PURPLE "║                   Automated Installation                     ║"
+    print_colored $PURPLE "║                   Tor Hidden Service Setup                   ║"
+    print_colored $PURPLE "║                    Automated Installation                    ║"
     print_colored $PURPLE "╚══════════════════════════════════════════════════════════════╝"
     echo
     if [[ "$VERBOSE" == true ]]; then
@@ -848,40 +1080,6 @@ EOF
     verbose_log "Website created with port $TEST_SITE_PORT"
 }
 
-# Function to start test web server (simplified since port is already correct)
-start_test_server() {
-    print_colored $BLUE "🚀 Starting test web server on port $TEST_SITE_PORT..."
-    
-    # Double-check if port is available
-    if ss -tlpn | grep -q ":$TEST_SITE_PORT "; then
-        print_colored $YELLOW "⚠️  Port $TEST_SITE_PORT became unavailable"
-        print_colored $RED "❌ Cannot start server - port conflict detected"
-        print_colored $CYAN "You can manually start it later with:"
-        print_colored $WHITE "cd $TEST_SITE_DIR && python3 server.py"
-        return 1
-    fi
-    
-    # Start server in background
-    cd "$TEST_SITE_DIR" || exit
-    nohup python3 server.py > server.log 2>&1 &
-    
-    sleep 2
-    
-    # Check if server started successfully
-    if curl -s http://127.0.0.1:$TEST_SITE_PORT >/dev/null 2>&1; then
-        print_colored $GREEN "✅ Test web server started successfully on port $TEST_SITE_PORT"
-        verbose_log "Web server is running on port $TEST_SITE_PORT"
-        return 0
-    else
-        print_colored $YELLOW "⚠️  Server may not have started correctly"
-        print_colored $CYAN "You can manually start it with:"
-        print_colored $WHITE "cd $TEST_SITE_DIR && python3 server.py"
-        print_colored $CYAN "Check logs at: $TEST_SITE_DIR/server.log"
-        verbose_log "Web server failed to start on port $TEST_SITE_PORT"
-        return 1
-    fi
-}
-
 # Function to display final results (updated to use registry)
 show_results() {
     clear
@@ -901,25 +1099,25 @@ show_results() {
         
         print_colored $GREEN "🎉 Setup Complete!"
         echo
-        print_colored $PURPLE "╔══════════════════════════════════════════════════════════════╗"
-        print_colored $PURPLE "║                     YOUR .ONION ADDRESS                     ║"
-        print_colored $PURPLE "╠══════════════════════════════════════════════════════════════╣"
-        print_colored $WHITE "║  $onion_address  ║"
-        print_colored $PURPLE "╚══════════════════════════════════════════════════════════════╝"
+        print_colored $PURPLE "╔══════════════════════════════════════════════════════════════════╗"
+        print_colored $PURPLE "║                        YOUR .ONION ADDRESS                       ║"
+        print_colored $PURPLE "╠══════════════════════════════════════════════════════════════════╣"
+        print_colored $WHITE  "║  $onion_address  ║"
+        print_colored $PURPLE "╚══════════════════════════════════════════════════════════════════╝"
         echo
-        print_colored $CYAN "Your Tor Hidden Service Details:"
-        print_colored $WHITE "════════════════════════════════════"
-        print_colored $YELLOW "🏷️  Service Name: $service_name"
+        print_colored $CYAN   "Your Tor Hidden Service Details:"
+        print_colored $WHITE  "════════════════════════════════════"
+        print_colored $YELLOW "🏷️ Service Name: $service_name"
         print_colored $YELLOW "🌐 Onion Address: $onion_address"
         print_colored $YELLOW "🔌 Local Port: $TEST_SITE_PORT"
         print_colored $YELLOW "📁 Service Directory: $HIDDEN_SERVICE_DIR"
         print_colored $YELLOW "🌍 Website Directory: $TEST_SITE_DIR"
         echo
-        print_colored $CYAN "To access your site:"
+        print_colored $CYAN  "To access your site:"
         print_colored $WHITE "1. Open Tor Browser"
         print_colored $WHITE "2. Navigate to: http://$onion_address"
         echo
-        print_colored $CYAN "To manage your services:"
+        print_colored $CYAN  "To manage your services:"
         print_colored $WHITE "• List all services: $0 --list"
         print_colored $WHITE "• Start test server: cd $TEST_SITE_DIR && python3 server.py"
         print_colored $WHITE "• Tor config: $TORRC_FILE"
