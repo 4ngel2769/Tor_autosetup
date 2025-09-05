@@ -189,12 +189,23 @@ update_service_in_registry() {
 sync_registry_status() {
     verbose_log "Syncing registry with actual service status..."
     
+    if [[ ! -f "$SERVICES_FILE" ]]; then
+        verbose_log "No services file found, skipping sync"
+        return 0
+    fi
+    
     local temp_file=$(mktemp)
     local updated=false
     
-    while IFS='|' read -r name dir port onion website status created; do
+    # Read the services file line by line
+    while IFS='|' read -r name dir port onion website status created || [[ -n "$name" ]]; do
         # Skip comments and empty lines
-        [[ "$name" =~ ^#.*$ ]] || [[ -z "$name" ]] && continue
+        if [[ "$name" =~ ^#.*$ ]] || [[ -z "$name" ]]; then
+            echo "$name|$dir|$port|$onion|$website|$status|$created" >> "$temp_file"
+            continue
+        fi
+        
+        verbose_log "Processing service: $name"
         
         local new_status="$status"
         local new_onion="$onion"
@@ -222,14 +233,53 @@ sync_registry_status() {
             fi
         fi
         
-        echo "$name|$dir|$port|$new_onion|$website|$new_status|$created"
-    done < "$SERVICES_FILE" > "$temp_file"
+        echo "$name|$dir|$port|$new_onion|$website|$new_status|$created" >> "$temp_file"
+        
+    done < "$SERVICES_FILE"
     
     mv "$temp_file" "$SERVICES_FILE"
     
     if [[ "$updated" == true ]]; then
         verbose_log "Registry status synchronized"
+    else
+        verbose_log "Registry status already up to date"
     fi
+}
+
+init_service_tracking() {
+    verbose_log "Initializing service tracking..."
+    
+    # Create .torstp directory if it doesn't exist
+    if [[ ! -d "$TORSTP_DIR" ]]; then
+        mkdir -p "$TORSTP_DIR"
+        verbose_log "Created .torstp directory: $TORSTP_DIR"
+    fi
+    
+    # Create or update services file
+    if [[ ! -f "$SERVICES_FILE" ]]; then
+        cat > "$SERVICES_FILE" << 'EOF'
+# Tor Hidden Services Registry
+# Format: SERVICE_NAME|DIRECTORY|PORT|ONION_ADDRESS|WEBSITE_DIR|STATUS|CREATED_DATE
+# Status: ACTIVE, INACTIVE, ERROR
+EOF
+        verbose_log "Created services registry file: $SERVICES_FILE"
+    else
+        # Check if header exists, if not add it
+        if ! grep -q "^# Tor Hidden Services Registry" "$SERVICES_FILE" 2>/dev/null; then
+            local temp_file=$(mktemp)
+            cat > "$temp_file" << 'EOF'
+# Tor Hidden Services Registry
+# Format: SERVICE_NAME|DIRECTORY|PORT|ONION_ADDRESS|WEBSITE_DIR|STATUS|CREATED_DATE
+# Status: ACTIVE, INACTIVE, ERROR
+EOF
+            cat "$SERVICES_FILE" >> "$temp_file"
+            mv "$temp_file" "$SERVICES_FILE"
+            verbose_log "Added header to existing services registry file"
+        fi
+    fi
+    
+    # Scan existing services and update registry
+    scan_existing_services
 }
 
 # Function to check if service is script-managed
@@ -522,13 +572,15 @@ parse_args() {
                 exit 0
                 ;;
             -t|--test)
+                print_colored $BLUE "🔧 Initializing service tracking..."
                 init_service_tracking
                 test_all_services
-                exit 0
+                exit $?
                 ;;
             -s|--stop)
-                if [[ -z "$2" ]]; then
+                if [[ -z "${2:-}" ]]; then
                     print_colored $RED "❌ Service name required for --stop option"
+                    print_colored $YELLOW "Usage: $0 --stop SERVICE_NAME"
                     show_usage
                 fi
                 init_service_tracking
@@ -536,9 +588,12 @@ parse_args() {
                 exit $?
                 ;;
             -r|--remove)
-                if [[ -z "$2" ]]; then
+                if [[ -z "${2:-}" ]]; then
                     print_colored $RED "❌ Service name required for --remove option"
-                    show_usage
+                    print_colored $YELLOW "Usage: $0 --remove SERVICE_NAME"
+                    init_service_tracking
+                    remove_hidden_service ""
+                    exit 1
                 fi
                 init_service_tracking
                 remove_hidden_service "$2"
@@ -1248,65 +1303,420 @@ get_web_server_status() {
     esac
 }
 
-# Add the test_all_services function that was referenced in parse_args:
+# Function to test all services with real-time status
 test_all_services() {
     print_colored $BLUE "🧪 Testing all hidden services..."
     
-    # Sync registry first
+    # Initialize service tracking first
+    init_service_tracking
+    
+    # Debug: Check if services file exists and has content
+    if [[ ! -f "$SERVICES_FILE" ]]; then
+        print_colored $YELLOW "❌ Services registry file not found: $SERVICES_FILE"
+        print_colored $CYAN "💡 Try running: $0 to create a new service first"
+        return 1
+    fi
+    
+    # Debug: Show file content (only in verbose mode)
+    if [[ "$VERBOSE" == true ]]; then
+        print_colored $CYAN "[DEBUG] Services file content:"
+        cat "$SERVICES_FILE"
+        echo "---"
+    fi
+    
+    # Sync registry status
     sync_registry_status
     
-    if [[ ! -f "$SERVICES_FILE" ]] || [[ ! -s "$SERVICES_FILE" ]]; then
-        print_colored $YELLOW "No services found to test."
+    verbose_log "Starting service counting phase..."
+    
+    # Count actual services (excluding header comments)
+    local service_count=0
+    local line_count=0
+    
+    while IFS='|' read -r name dir port onion website status created; do
+        ((line_count++))
+        verbose_log "Reading line $line_count: name='$name'"
+        
+        # Skip comments and empty lines
+        if [[ "$name" =~ ^#.*$ ]] || [[ -z "$name" ]]; then
+            verbose_log "Skipping line $line_count: $name (comment/empty)"
+            continue
+        fi
+        
+        ((service_count++))
+        verbose_log "Found service $service_count: $name"
+        
+    done < "$SERVICES_FILE"
+    
+    verbose_log "Service counting completed: $service_count services found from $line_count lines"
+    print_colored $CYAN "📊 Found $service_count services in registry (from $line_count total lines)"
+    
+    if [[ $service_count -eq 0 ]]; then
+        print_colored $YELLOW "No active services found to test."
+        print_colored $CYAN "💡 Create a new service by running: $0"
         return 0
     fi
+    
+    verbose_log "Starting testing phase..."
     
     local tested=0
     local active=0
     local responsive=0
     
+    # Test each service - using a different approach to avoid potential issues
+    verbose_log "Beginning service testing loop..."
+    
+    local temp_services=$(mktemp)
+    # First, extract just the service lines to a temp file
     while IFS='|' read -r name dir port onion website status created; do
         # Skip comments and empty lines
-        [[ "$name" =~ ^#.*$ ]] || [[ -z "$name" ]] && continue
-        
+        if [[ "$name" =~ ^#.*$ ]] || [[ -z "$name" ]]; then
+            continue
+        fi
+        echo "$name|$dir|$port|$onion|$website|$status|$created" >> "$temp_services"
+    done < "$SERVICES_FILE"
+    
+    verbose_log "Created temp services file with $(wc -l < "$temp_services") lines"
+    
+    # Now test each service from the temp file
+    while IFS='|' read -r name dir port onion website status created; do
         ((tested++))
+        verbose_log "Testing service $tested: $name"
         
-        print_colored $CYAN "Testing $name..."
+        print_colored $CYAN "🔍 Testing service $tested/$service_count: $name"
+        
+        # Debug service details
+        verbose_log "Service details: name=$name, dir=$dir, port=$port, status=$status"
         
         # Check Tor service status
         if [[ "$status" == "ACTIVE" ]]; then
             ((active++))
-            print_colored $GREEN "  ✅ Tor service: ACTIVE ($onion)"
+            if [[ -n "$onion" ]]; then
+                print_colored $GREEN "  ✅ Tor service: ACTIVE ($onion)"
+            else
+                print_colored $GREEN "  ✅ Tor service: ACTIVE (onion address not synced)"
+            fi
         else
-            print_colored $YELLOW "  ⚠️ Tor service: $status"
+            print_colored $YELLOW "  ⚠️  Tor service: $status"
         fi
         
         # Check web server if port is available
         if [[ -n "$port" ]]; then
-            local web_status=$(check_web_server_status "$port")
+            print_colored $BLUE "  🌐 Testing web server on port $port..."
+            verbose_log "Calling check_web_server_status for port $port"
+            
+            local web_status
+            web_status=$(check_web_server_status "$port")
+            verbose_log "Web status result: $web_status"
+            
             case "$web_status" in
                 "RUNNING")
                     ((responsive++))
                     print_colored $GREEN "  ✅ Web server: RUNNING on port $port"
                     ;;
                 "NOT_LISTENING")
-                    print_colored $YELLOW "  ⚠️ Web server: NOT LISTENING on port $port"
+                    print_colored $YELLOW "  ⚠️  Web server: NOT LISTENING on port $port"
                     ;;
                 "NOT_RESPONDING")
                     print_colored $RED "  ❌ Web server: NOT RESPONDING on port $port"
                     ;;
+                *)
+                    print_colored $RED "  ❌ Web server: UNKNOWN STATUS ($web_status)"
+                    ;;
             esac
         else
-            print_colored $WHITE "  ℹ️ Web server: No port configured"
+            print_colored $WHITE "  ℹ️  Web server: No port configured"
         fi
         
         echo
         
-    done < "$SERVICES_FILE"
+    done < "$temp_services"
     
+    # Clean up temp file
+    rm -f "$temp_services"
+    
+    verbose_log "Testing phase completed"
+    
+    # Final summary
     print_colored $CYAN "📊 Test Summary:"
-    print_colored $WHITE "• Total services: $tested"
+    print_colored $WHITE "• Total services tested: $tested"
     print_colored $WHITE "• Active Tor services: $active"
     print_colored $WHITE "• Responsive web servers: $responsive"
+    
+    if [[ $tested -eq 0 ]]; then
+        print_colored $YELLOW "⚠️  No services were actually tested - check registry file"
+    fi
+    
+    verbose_log "test_all_services function completed successfully"
+}
+
+remove_service_from_registry() {
+    local service_name="$1"
+    local temp_file=$(mktemp)
+    
+    # Copy all lines except the one we want to remove
+    while IFS='|' read -r name dir port onion website status created; do
+        if [[ "$name" != "$service_name" ]]; then
+            echo "$name|$dir|$port|$onion|$website|$status|$created"
+        fi
+    done < "$SERVICES_FILE" > "$temp_file"
+    
+    mv "$temp_file" "$SERVICES_FILE"
+    verbose_log "Removed service $service_name from registry"
+}
+
+# Function to remove hidden service from torrc
+remove_from_torrc() {
+    local service_dir="$1"
+    local service_name="$2"
+    
+    verbose_log "Removing hidden service configuration from torrc..."
+    
+    # Create backup of torrc before modification
+    if [[ -f "$TORRC_FILE" ]]; then
+        cp "$TORRC_FILE" "$TORRC_FILE.backup.$(date +%s)"
+        verbose_log "Created backup of torrc"
+    fi
+    
+    local temp_file=$(mktemp)
+    local in_service_block=false
+    local service_removed=false
+    
+    while IFS= read -r line; do
+        # Check if we're entering the service block
+        if [[ "$line" =~ ^#.*Hidden.*Service.*Configuration.*-.*$service_name$ ]]; then
+            in_service_block=true
+            service_removed=true
+            verbose_log "Found service block for $service_name, removing..."
+            continue
+        fi
+        
+        # Check if we're in the service block
+        if [[ "$in_service_block" == true ]]; then
+            if [[ "$line" =~ ^HiddenServiceDir[[:space:]]+$service_dir/?$ ]]; then
+                verbose_log "Removing HiddenServiceDir line"
+                continue
+            elif [[ "$line" =~ ^HiddenServicePort.*$ ]]; then
+                verbose_log "Removing HiddenServicePort line"
+                continue
+            elif [[ -z "$line" ]]; then
+                # Empty line might be end of block, but continue to next line to check
+                continue
+            elif [[ "$line" =~ ^[[:space:]]*$ ]]; then
+                # Whitespace only line
+                continue
+            elif [[ "$line" =~ ^# ]] || [[ "$line" =~ ^[A-Za-z] ]]; then
+                # Hit another comment or config line, end of our block
+                in_service_block=false
+                echo "$line" >> "$temp_file"
+            else
+                # Unknown line in block, skip it
+                continue
+            fi
+        else
+            # Not in service block, keep the line
+            echo "$line" >> "$temp_file"
+        fi
+    done < "$TORRC_FILE"
+    
+    mv "$temp_file" "$TORRC_FILE"
+    
+    if [[ "$service_removed" == true ]]; then
+        print_colored $GREEN "✅ Removed hidden service configuration from torrc"
+    else
+        print_colored $YELLOW "⚠️  Hidden service configuration not found in torrc (may have been manually removed)"
+    fi
+}
+
+# Function to safely remove directories
+remove_service_directories() {
+    local service_dir="$1"
+    local website_dir="$2"
+    local service_name="$3"
+    
+    verbose_log "Removing service directories..."
+    
+    # Remove hidden service directory
+    if [[ -d "$service_dir" ]]; then
+        verbose_log "Removing hidden service directory: $service_dir"
+        if rm -rf "$service_dir" 2>/dev/null; then
+            print_colored $GREEN "✅ Removed hidden service directory: $service_dir"
+        else
+            print_colored $RED "❌ Failed to remove hidden service directory: $service_dir"
+            return 1
+        fi
+    else
+        print_colored $YELLOW "⚠️  Hidden service directory not found: $service_dir"
+    fi
+    
+    # Remove website directory if it exists
+    if [[ -n "$website_dir" ]] && [[ -d "$website_dir" ]]; then
+        verbose_log "Removing website directory: $website_dir"
+        if rm -rf "$website_dir" 2>/dev/null; then
+            print_colored $GREEN "✅ Removed website directory: $website_dir"
+        else
+            print_colored $YELLOW "⚠️  Failed to remove website directory: $website_dir"
+        fi
+    fi
+    
+    # Remove PID file if it exists
+    local pid_file=$(get_pid_file "$service_name")
+    if [[ -f "$pid_file" ]]; then
+        verbose_log "Removing PID file: $pid_file"
+        rm -f "$pid_file"
+    fi
+}
+
+# Function to preview what will be removed
+preview_removal() {
+    local service_name="$1"
+    local service_dir="$2"
+    local website_dir="$3"
+    local port="$4"
+    
+    print_colored $CYAN "📋 Preview of what will be removed:"
+    echo
+    print_colored $WHITE "Directories to be deleted:"
+    print_colored $RED "  • $service_dir"
+    if [[ -n "$website_dir" ]] && [[ -d "$website_dir" ]]; then
+        print_colored $RED "  • $website_dir"
+    fi
+    
+    echo
+    print_colored $WHITE "Torrc configuration lines to be removed:"
+    if grep -q "# Hidden Service Configuration - $service_name" "$TORRC_FILE" 2>/dev/null; then
+        print_colored $RED "  • # Hidden Service Configuration - $service_name"
+        print_colored $RED "  • HiddenServiceDir $service_dir/"
+        print_colored $RED "  • HiddenServicePort 80 127.0.0.1:$port"
+    else
+        print_colored $YELLOW "  • No torrc configuration found for this service"
+    fi
+    
+    echo
+    print_colored $WHITE "Registry entry to be removed:"
+    print_colored $RED "  • Service record for '$service_name'"
+    
+    if is_script_managed "$service_name"; then
+        echo
+        print_colored $WHITE "Additional cleanup:"
+        print_colored $RED "  • PID files and process tracking"
+    fi
+}
+
+# Function to remove a hidden service completely
+remove_hidden_service() {
+    local service_name="$1"
+    
+    if [[ -z "$service_name" ]]; then
+        # print_colored $RED "❌ Service name required"
+        print_colored $YELLOW "Usage: $0 --remove SERVICE_NAME"
+        print_colored $CYAN "Available services:"
+        if [[ -f "$SERVICES_FILE" ]]; then
+            while IFS='|' read -r name dir port onion website status created; do
+                [[ "$name" =~ ^#.*$ ]] || [[ -z "$name" ]] && continue
+                print_colored $WHITE "  • $name"
+            done < "$SERVICES_FILE"
+        else
+            print_colored $YELLOW "  No services found"
+        fi
+        return 1
+    fi
+    
+    # Check if service exists in registry
+    if ! grep -q "^$service_name|" "$SERVICES_FILE" 2>/dev/null; then
+        print_colored $RED "❌ Service '$service_name' not found in registry"
+        print_colored $CYAN "Available services:"
+        if [[ -f "$SERVICES_FILE" ]]; then
+            while IFS='|' read -r name dir port onion website status created; do
+                [[ "$name" =~ ^#.*$ ]] || [[ -z "$name" ]] && continue
+                print_colored $WHITE "  • $name"
+            done < "$SERVICES_FILE"
+        else
+            print_colored $YELLOW "  No services found"
+        fi
+        return 1
+    fi
+    
+    # Get service details from registry
+    local service_info
+    service_info=$(grep "^$service_name|" "$SERVICES_FILE" 2>/dev/null)
+    
+    if [[ -z "$service_info" ]]; then
+        print_colored $RED "❌ Could not retrieve service information"
+        return 1
+    fi
+    
+    IFS='|' read -r name dir port onion website status created <<< "$service_info"
+    
+    # Display service information
+    clear
+    print_header
+    print_colored $RED "⚠️  DANGER: PERMANENT REMOVAL WARNING ⚠️"
+    echo
+    print_colored $YELLOW "You are about to PERMANENTLY remove the following hidden service:"
+    echo
+    print_colored $WHITE "Service Name: $name"
+    print_colored $WHITE "Onion Address: ${onion:-'<not generated>'}"
+    print_colored $WHITE "Port: ${port:-'N/A'}"
+    print_colored $WHITE "Hidden Service Directory: $dir"
+    print_colored $WHITE "Website Directory: ${website:-'N/A'}"
+    print_colored $WHITE "Created: ${created:-'Unknown'}"
+    echo
+    
+    # Show preview of what will be removed
+    preview_removal "$service_name" "$dir" "$website" "$port"
+    
+    echo
+    print_colored $RED "⚠️  THIS ACTION CANNOT BE UNDONE! ⚠️"
+    print_colored $RED "⚠️  The .onion address will be LOST FOREVER! ⚠️"
+    print_colored $RED "⚠️  All website files will be DELETED! ⚠️"
+    echo
+    
+    # Multiple confirmation prompts
+    if ! ask_yes_no "Are you ABSOLUTELY SURE you want to remove this hidden service?"; then
+        print_colored $GREEN "✅ Removal cancelled - service preserved"
+        return 0
+    fi
+    
+    if ! ask_yes_no "This will PERMANENTLY DELETE the .onion address. Continue?"; then
+        print_colored $GREEN "✅ Removal cancelled - service preserved"
+        return 0
+    fi
+    
+    if ! ask_yes_no "FINAL WARNING: Remove hidden service '$service_name' forever?"; then
+        print_colored $GREEN "✅ Removal cancelled - service preserved"
+        return 0
+    fi
+    
+    # Stop web server if it's running
+    if is_script_managed "$service_name"; then
+        print_colored $BLUE "🛑 Stopping web server..."
+        stop_web_server "$service_name" 2>/dev/null || true
+    fi
+    
+    print_colored $BLUE "🗑️ Starting removal process..."
+    
+    # Remove from torrc
+    remove_from_torrc "$dir" "$service_name"
+    
+    # Remove directories
+    remove_service_directories "$dir" "$website" "$service_name"
+    
+    # Remove from registry
+    remove_service_from_registry "$service_name"
+    
+    # Restart Tor to apply changes
+    print_colored $BLUE "🔄 Restarting Tor service to apply changes..."
+    if systemctl restart tor 2>/dev/null; then
+        print_colored $GREEN "✅ Tor service restarted successfully"
+    else
+        print_colored $YELLOW "⚠️  Please manually restart Tor service: sudo systemctl restart tor"
+    fi
+    
+    print_colored $GREEN "✅ Hidden service '$service_name' has been completely removed"
+    print_colored $YELLOW "💡 The .onion address is now permanently inaccessible"
+    
+    return 0
 }
 
 # Main installation flow
