@@ -220,14 +220,17 @@ check_web_server_status() {
     local port="$1"
     local timeout=3
     
-    # Check if port is listening
+    # Check if port is listening on any interface
     if ! ss -tlpn 2>/dev/null | grep -q ":$port "; then
         echo "NOT_LISTENING"
         return 1
     fi
     
-    # Try to curl the service with a short timeout
+    # Try to curl the service with a short timeout - try both localhost and 0.0.0.0 binding
     if curl -s --connect-timeout "$timeout" --max-time "$timeout" "http://127.0.0.1:$port" >/dev/null 2>&1; then
+        echo "RUNNING"
+        return 0
+    elif curl -s --connect-timeout "$timeout" --max-time "$timeout" "http://localhost:$port" >/dev/null 2>&1; then
         echo "RUNNING"
         return 0
     else
@@ -298,17 +301,18 @@ get_web_server_status() {
 
 # Function to start server with PID tracking
 start_test_server() {
-    print_colored "$BLUE" "🚀 Starting test web server on port $TEST_SITE_PORT..."
+    print_colored "$(c_process)" "🚀 Starting test web server on port $TEST_SITE_PORT..."
     
     local service_name=$(basename "$HIDDEN_SERVICE_DIR")
     local pid_file=$(get_pid_file "$service_name")
     
     # Double-check if port is available
     if ss -tlpn | grep -q ":$TEST_SITE_PORT "; then
-        print_colored "$YELLOW" "⚠️  Port $TEST_SITE_PORT became unavailable"
-        print_colored "$RED" "❌ Cannot start server - port conflict detected"
-        print_colored "$CYAN" "You can manually start it later with:"
-        print_colored "$WHITE" "cd $TEST_SITE_DIR && python3 server.py"
+        print_colored "$(c_warning)" "⚠️  Port $TEST_SITE_PORT became unavailable"
+        print_colored "$(c_error)" "❌ Cannot start server - port conflict detected"
+        print_colored "$(c_secondary)" "You can manually start it later with:"
+        print_colored "$(c_text)" "cd $TEST_SITE_DIR && python3 server.py"
+        sleep 3
         return 1
     fi
     
@@ -318,20 +322,25 @@ start_test_server() {
     local server_pid=$!
     echo "$server_pid" > "$pid_file"
     
-    sleep 2
+    print_colored "$(c_process)" "⏳ Checking if server started correctly..."
+    sleep 3
     
     # Check if server started successfully
     if curl -s "http://127.0.0.1:$TEST_SITE_PORT" >/dev/null 2>&1; then
-        print_colored "$GREEN" "✅ Test web server started successfully on port $TEST_SITE_PORT (PID: $server_pid)"
-        verbose_log "Web server is running on port $TEST_SITE_PORT with PID $server_pid"
+        print_colored "$(c_success)" "✅ Test web server started successfully on all interfaces"
+        print_colored "$(c_success)" "   📡 Port: $TEST_SITE_PORT (PID: $server_pid)"
+        print_colored "$(c_warning)" "   ⚠️  Accessible from local network (bypasses Tor anonymity)"
+        verbose_log "Web server is running on port $TEST_SITE_PORT with PID $server_pid, bound to all interfaces"
+        sleep 2
         return 0
     else
-        print_colored "$YELLOW" "⚠️  Server may not have started correctly"
+        print_colored "$(c_warning)" "⚠️  Server may not have started correctly"
         rm -f "$pid_file"
-        print_colored "$CYAN" "You can manually start it with:"
-        print_colored "$WHITE" "cd $TEST_SITE_DIR && python3 server.py"
-        print_colored "$CYAN" "Check logs at: $TEST_SITE_DIR/server.log"
+        print_colored "$(c_secondary)" "You can manually start it with:"
+        print_colored "$(c_text)" "cd $TEST_SITE_DIR && python3 server.py"
+        print_colored "$(c_secondary)" "Check logs at: $TEST_SITE_DIR/server.log"
         verbose_log "Web server failed to start on port $TEST_SITE_PORT"
+        sleep 3
         return 1
     fi
 }
@@ -342,29 +351,29 @@ stop_web_server() {
     local pid_file=$(get_pid_file "$service_name")
     
     if [[ ! -f "$pid_file" ]]; then
-        print_colored "$YELLOW" "⚠️  No PID file found for service: $service_name"
+        print_colored "$(c_warning)" "⚠️  No PID file found for service: $service_name"
         return 1
     fi
     
     local pid=$(cat "$pid_file")
     
     if [[ -z "$pid" ]]; then
-        print_colored "$YELLOW" "⚠️  Invalid PID in file for service: $service_name"
+        print_colored "$(c_warning)" "⚠️  Invalid PID in file for service: $service_name"
         rm -f "$pid_file"
         return 1
     fi
     
     if kill -0 "$pid" 2>/dev/null; then
         if kill "$pid" 2>/dev/null; then
-            print_colored "$GREEN" "✅ Stopped web server for $service_name (PID: $pid)"
+            print_colored "$(c_success)" "✅ Stopped web server for $service_name (PID: $pid)"
             rm -f "$pid_file"
             return 0
         else
-            print_colored "$RED" "❌ Failed to stop web server for $service_name (PID: $pid)"
+            print_colored "$(c_error)" "❌ Failed to stop web server for $service_name (PID: $pid)"
             return 1
         fi
     else
-        print_colored "$YELLOW" "⚠️  Process $pid for $service_name is not running"
+        print_colored "$(c_warning)" "⚠️  Process $pid for $service_name is not running"
         rm -f "$pid_file"
         return 1
     fi
@@ -443,9 +452,9 @@ remove_from_torrc() {
     mv "$temp_file" "$TORRC_FILE"
     
     if [[ "$service_removed" == true ]]; then
-        print_colored "$GREEN" "✅ Removed hidden service configuration from torrc"
+        print_colored "$(c_success)" "✅ Removed hidden service configuration from torrc"
     else
-        print_colored "$YELLOW" "⚠️  Hidden service configuration not found in torrc (may have been manually removed)"
+        print_colored "$(c_warning)" "⚠️  Hidden service configuration not found in torrc (may have been manually removed)"
     fi
 }
 
@@ -461,23 +470,46 @@ remove_service_directories() {
     if [[ -d "$service_dir" ]]; then
         verbose_log "Removing hidden service directory: $service_dir"
         if rm -rf "$service_dir" 2>/dev/null; then
-            print_colored "$GREEN" "✅ Removed hidden service directory: $service_dir"
+            print_colored "$(c_success)" "✅ Removed hidden service directory: $service_dir"
         else
-            print_colored "$RED" "❌ Failed to remove hidden service directory: $service_dir"
+            print_colored "$(c_error)" "❌ Failed to remove hidden service directory: $service_dir"
             return 1
         fi
     else
-        print_colored "$YELLOW" "⚠️  Hidden service directory not found: $service_dir"
+        print_colored "$(c_warning)" "⚠️  Hidden service directory not found: $service_dir"
     fi
     
-    # Remove website directory if it exists
-    if [[ -n "$website_dir" ]] && [[ -d "$website_dir" ]]; then
-        verbose_log "Removing website directory: $website_dir"
-        if rm -rf "$website_dir" 2>/dev/null; then
-            print_colored "$GREEN" "✅ Removed website directory: $website_dir"
-        else
-            print_colored "$YELLOW" "⚠️  Failed to remove website directory: $website_dir"
+    # Remove website directory if it exists (check both provided path and constructed path)
+    local website_paths_to_check=()
+    
+    # Add the website_dir from registry if it exists
+    if [[ -n "$website_dir" ]]; then
+        website_paths_to_check+=("$website_dir")
+    fi
+    
+    # Also check the standard constructed path for script-managed services
+    if is_script_managed "$service_name"; then
+        local constructed_website_dir="$TEST_SITE_BASE_DIR/$service_name"
+        website_paths_to_check+=("$constructed_website_dir")
+    fi
+    
+    # Remove duplicates and check each path
+    local removed_website=false
+    for website_path in "${website_paths_to_check[@]}"; do
+        if [[ -d "$website_path" ]]; then
+            verbose_log "Removing website directory: $website_path"
+            if rm -rf "$website_path" 2>/dev/null; then
+                print_colored "$(c_success)" "✅ Removed website directory: $website_path"
+                removed_website=true
+            else
+                print_colored "$(c_warning)" "⚠️  Failed to remove website directory: $website_path"
+            fi
         fi
+    done
+    
+    if [[ "$removed_website" == false ]] && [[ ${#website_paths_to_check[@]} -gt 0 ]]; then
+        print_colored "$(c_warning)" "⚠️  No website directories found to remove"
+        verbose_log "Checked paths: ${website_paths_to_check[*]}"
     fi
     
     # Remove PID file if it exists
@@ -485,5 +517,97 @@ remove_service_directories() {
     if [[ -f "$pid_file" ]]; then
         verbose_log "Removing PID file: $pid_file"
         rm -f "$pid_file"
+        print_colored "$(c_success)" "✅ Removed PID file: $pid_file"
     fi
+}
+
+# Function to get local IP address for web server display
+get_local_ip() {
+    # Try multiple methods to get the local IP
+    local ip=""
+    
+    # Method 1: Use ip route (most reliable on Linux)
+    if command -v ip >/dev/null 2>&1; then
+        ip=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K[^ ]+' | head -1 2>/dev/null)
+    fi
+    
+    # Method 2: Use hostname -I as fallback
+    if [[ -z "$ip" ]] && command -v hostname >/dev/null 2>&1; then
+        ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+    
+    # Method 3: Use ifconfig as fallback
+    if [[ -z "$ip" ]] && command -v ifconfig >/dev/null 2>&1; then
+        ip=$(ifconfig 2>/dev/null | grep -E "inet addr:|inet " | grep -v "127.0.0.1" | head -1 | awk '{print $2}' | cut -d: -f2)
+    fi
+    
+    # Default to localhost if nothing found
+    if [[ -z "$ip" ]] || [[ "$ip" == "127.0.0.1" ]]; then
+        echo "localhost"
+    else
+        echo "$ip"
+    fi
+}
+
+# Function to detect web server binding address
+get_web_server_binding() {
+    local port="$1"
+    
+    # Check what addresses the port is bound to using ss
+    local binding_info
+    binding_info=$(ss -tlpn 2>/dev/null | grep ":$port ")
+    
+    if [[ -z "$binding_info" ]]; then
+        echo "NOT_BOUND"
+        return 1
+    fi
+    
+    # Check if bound to all interfaces (0.0.0.0 or *)
+    if echo "$binding_info" | grep -qE "(0\.0\.0\.0:$port|\*:$port)"; then
+        echo "ALL_INTERFACES"
+        return 0
+    # Check if bound to localhost only (127.0.0.1)
+    elif echo "$binding_info" | grep -qE "127\.0\.0\.1:$port"; then
+        echo "LOCALHOST_ONLY"
+        return 0
+    # Check for specific IP binding
+    elif echo "$binding_info" | grep -qE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:$port"; then
+        # Extract the specific IP
+        local specific_ip
+        specific_ip=$(echo "$binding_info" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        echo "SPECIFIC_IP:$specific_ip"
+        return 0
+    else
+        echo "UNKNOWN"
+        return 1
+    fi
+}
+
+# Function to get web server display address with proper binding detection
+get_web_server_display_address() {
+    local port="$1"
+    local binding_type
+    
+    binding_type=$(get_web_server_binding "$port")
+    
+    case "$binding_type" in
+        "ALL_INTERFACES")
+            # Server accepts connections from all interfaces
+            local local_ip
+            local_ip=$(get_local_ip)
+            echo "$local_ip:$port"
+            ;;
+        "LOCALHOST_ONLY")
+            # Server only accepts localhost connections
+            echo "127.0.0.1:$port"
+            ;;
+        "SPECIFIC_IP:"*)
+            # Server bound to specific IP
+            local specific_ip="${binding_type#SPECIFIC_IP:}"
+            echo "$specific_ip:$port"
+            ;;
+        *)
+            echo "unknown:$port"
+            ;;
+    esac
 }

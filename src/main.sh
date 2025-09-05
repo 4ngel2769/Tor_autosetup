@@ -39,40 +39,49 @@ show_usage() {
 
 # Function to list available services
 list_services() {
-    print_colored "$BLUE" "🔍 Checking service status..."
+    print_colored "$(c_info)" "🔍 Checking service status..."
     
     # Sync registry before listing
     sync_registry_status
     
-    print_colored "$CYAN" "📋 Available Tor Hidden Services:"
+    print_colored "$(c_secondary)" "📋 Available Tor Hidden Services:"
     echo
     
     if [[ ! -f "$SERVICES_FILE" ]] || [[ ! -s "$SERVICES_FILE" ]]; then
-        print_colored "$YELLOW" "No services found."
+        print_colored "$(c_warning)" "No services found."
         return 0
     fi
     
-    printf "%-30s %-6s %-50s %-8s %-10s %-12s\n" "SERVICE NAME" "PORT" "ONION ADDRESS" "STATUS" "MANAGED" "WEB SERVER"
-    print_colored "$WHITE" "──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────"
+    # Updated header with new WEB ADDRESS column and shorter ONION ADDRESS
+    printf "%-30s %-6s %-40s %-8s %-10s %-12s %-25s\n" "SERVICE NAME" "PORT" "ONION ADDRESS" "STATUS" "MANAGED" "WEB SERVER" "WEB ADDRESS"
+    print_colored "$(c_text)" "───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────"
     
     while IFS='|' read -r name dir port onion website status created; do
         # Skip comments and empty lines
         [[ "$name" =~ ^#.*$ ]] || [[ -z "$name" ]] && continue
         
-        local display_onion="$onion"
+        # Handle onion address - darker color, no underline, but still clickable
+        local display_onion=""
+        local onion_display_color=""
+        
         if [[ -z "$onion" ]]; then
             display_onion="<not generated>"
-        elif [[ ${#onion} -gt 45 ]]; then
-            display_onion="${onion:0:42}..."
+            onion_display_color="$(c_muted)"
+        elif [[ ${#onion} -gt 35 ]]; then
+            display_onion="${onion:0:32}..."
+            onion_display_color="$(c_text)"  # Darker color for onion addresses
+        else
+            display_onion="$onion"
+            onion_display_color="$(c_text)"  # Darker color for onion addresses
         fi
         
-        # Status color
+        # Status color using dynamic colors
         local status_color_bg=""
         case "$status" in
-            "ACTIVE") status_color_bg="${GREEN}" ;;
-            "INACTIVE") status_color_bg="${RED}" ;;
-            "ERROR") status_color_bg="${RED}" ;;
-            *) status_color_bg="${WHITE}" ;;
+            "ACTIVE") status_color_bg="$(c_success)" ;;
+            "INACTIVE") status_color_bg="$(c_error)" ;;
+            "ERROR") status_color_bg="$(c_error)" ;;
+            *) status_color_bg="$(c_text)" ;;
         esac
         
         # Managed color
@@ -80,9 +89,9 @@ list_services() {
         local managed_color_bg=""
         if is_script_managed "$name"; then
             managed="YES"
-            managed_color_bg="${WHITE}"
+            managed_color_bg="$(c_text)"
         else
-            managed_color_bg="${GREY}"
+            managed_color_bg="$(c_muted)"
         fi
         
         # Get comprehensive web server status
@@ -90,17 +99,43 @@ list_services() {
         local web_color_bg=""
         
         case "$web_status" in
-            "RUNNING") web_color_bg="${GREEN}" ;;
-            "STOPPED") web_color_bg="${YELLOW}" ;;
-            "UNRESPONSIVE") web_color_bg="${RED}" ;;
-            "NOT_LISTENING") web_color_bg="${RED}" ;;
-            "NOT_RESPONDING") web_color_bg="${RED}" ;;
-            "N/A") web_color_bg="${WHITE}" ;;
-            *) web_color_bg="${WHITE}" ;;
+            "RUNNING") web_color_bg="$(c_success)" ;;
+            "STOPPED") web_color_bg="$(c_warning)" ;;
+            "UNRESPONSIVE") web_color_bg="$(c_error)" ;;
+            "NOT_LISTENING") web_color_bg="$(c_error)" ;;
+            "NOT_RESPONDING") web_color_bg="$(c_error)" ;;
+            "N/A") web_color_bg="$(c_text)" ;;
+            *) web_color_bg="$(c_text)" ;;
         esac
         
-        # Print with custom colors
-        printf "${GREEN}%-30s${NC} ${BLURPLE}%-6s${NC} ${WHITE}%-50s${NC} ${status_color_bg}%-8s${NC} ${managed_color_bg}%-10s${NC} ${web_color_bg}%-12s${NC}\n" "$name" "$port" "$display_onion" "$status" "$managed" "$web_status"
+        # Determine web address with proper binding detection - only show for running servers
+        local web_address_raw=""
+        local web_address_formatted=""
+        
+        if [[ "$web_status" == "RUNNING" ]] && [[ -n "$port" ]]; then
+            local display_address
+            display_address=$(get_web_server_display_address "$port")
+            
+            # Raw address for spacing calculation
+            web_address_raw="http://${display_address}"
+            # Formatted address with color and underline
+            web_address_formatted="$(c_highlight)${UNDERLINE}http://${display_address}${RESET}"
+            
+            verbose_log "Web server binding for $name:$port - Address: $display_address"
+        else
+            web_address_raw="<not running>"
+            web_address_formatted="$(c_muted)<not running>${NC}"
+        fi
+        
+        # Print the row - using printf for alignment but with direct echo for the web address
+        printf "$(c_primary)%-30s${NC} $(c_blurple)%-6s${NC} ${onion_display_color}%-40s${NC} ${status_color_bg}%-8s${NC} ${managed_color_bg}%-10s${NC} ${web_color_bg}%-12s${NC} " "$name" "$port" "$display_onion" "$status" "$managed" "$web_status"
+        
+        # Handle web address separately to preserve formatting
+        if [[ "$web_status" == "RUNNING" ]] && [[ -n "$port" ]]; then
+            echo -e "${web_address_formatted}"
+        else
+            echo -e "$(c_muted)<not running>${NC}"
+        fi
         
         # Add verbose information if enabled
         if [[ "$VERBOSE" == true ]]; then
@@ -109,6 +144,12 @@ list_services() {
             verbose_log "  Port: $port"
             verbose_log "  Website: $website"
             verbose_log "  Hostname file: $dir/hostname"
+            verbose_log "  Web address: $web_address_raw"
+            if [[ -n "$port" ]]; then
+                local binding_type
+                binding_type=$(get_web_server_binding "$port")
+                verbose_log "  Binding type: $binding_type"
+            fi
             if [[ -f "$dir/hostname" ]]; then
                 verbose_log "  Hostname content: $(cat "$dir/hostname" 2>/dev/null || echo 'ERROR reading file')"
             fi
@@ -117,34 +158,42 @@ list_services() {
     done < "$SERVICES_FILE"
     echo
     
-    print_colored "$CYAN" "Legend:"
-    print_colored "$WHITE" "• STATUS: Tor hidden service status (ACTIVE/INACTIVE/ERROR)"
-    print_colored "$WHITE" "• MANAGED: Created by this script (YES/NO)"
-    print_colored "$WHITE" "• WEB SERVER: Local web server status"
-    print_colored "$GREEN" "  - RUNNING: Server responding to requests"
-    print_colored "$YELLOW" "  - STOPPED: No server running on port"
-    print_colored "$RED" "  - UNRESPONSIVE: Process exists but not responding"
-    print_colored "$RED" "  - NOT_LISTENING: Port not listening"
-    print_colored "$WHITE" "  - N/A: Not applicable (external service)"
+    print_colored "$(c_secondary)" "Legend:"
+    print_colored "$(c_text)" "• STATUS: Tor hidden service status (ACTIVE/INACTIVE/ERROR)"
+    print_colored "$(c_text)" "• MANAGED: Created by this script (YES/NO)"
+    print_colored "$(c_text)" "• WEB SERVER: Local web server status"
+    print_colored "$(c_success)" "  - RUNNING: Server responding to requests"
+    print_colored "$(c_warning)" "  - STOPPED: No server running on port"
+    print_colored "$(c_error)" "  - UNRESPONSIVE: Process exists but not responding"
+    print_colored "$(c_error)" "  - NOT_LISTENING: Port not listening"
+    print_colored "$(c_text)" "  - N/A: Not applicable (external service)"
+    print_colored "$(c_text)" "• ONION ADDRESS: .onion domain for Tor access (clickable)"
+    print_colored "$(c_text)" "• WEB ADDRESS: Local network address (when server is running)"
+    echo -e "  - $(c_highlight)${UNDERLINE}Underlined links${RESET} show actual binding address"
+    print_colored "$(c_info)" "  - 127.0.0.1:PORT for localhost-only servers"
+    print_colored "$(c_info)" "  - [machine-ip]:PORT for servers accepting external connections"
+    print_colored "$(c_muted)" "  - <not running> when web server is not active"
+    echo
+    print_colored "$(c_warning)" "⚠️  Note: 127.0.0.1 access preserves anonymity, machine IP bypasses Tor!"
 }
 
 # Function to test all services with real-time status
 test_all_services() {
-    print_colored "$BLUE" "🧪 Testing all hidden services..."
+    print_colored "$(c_info)" "🧪 Testing all hidden services..."
     
     # Initialize service tracking first
     init_service_tracking
     
     # Debug: Check if services file exists and has content
     if [[ ! -f "$SERVICES_FILE" ]]; then
-        print_colored "$YELLOW" "❌ Services registry file not found: $SERVICES_FILE"
-        print_colored "$CYAN" "💡 Try running: $0 to create a new service first"
+        print_colored "$(c_warning)" "❌ Services registry file not found: $SERVICES_FILE"
+        print_colored "$(c_secondary)" "💡 Try running: $0 to create a new service first"
         return 1
     fi
     
     # Debug: Show file content (only in verbose mode)
     if [[ "$VERBOSE" == true ]]; then
-        print_colored "$CYAN" "[DEBUG] Services file content:"
+        print_colored "$(c_secondary)" "[DEBUG] Services file content:"
         cat "$SERVICES_FILE"
         echo "---"
     fi
@@ -174,11 +223,11 @@ test_all_services() {
     done < "$SERVICES_FILE"
     
     verbose_log "Service counting completed: $service_count services found from $line_count lines"
-    print_colored "$CYAN" "📊 Found $service_count services in registry (from $line_count total lines)"
+    print_colored "$(c_secondary)" "📊 Found $service_count services in registry (from $line_count total lines)"
     
     if [[ $service_count -eq 0 ]]; then
-        print_colored "$YELLOW" "No active services found to test."
-        print_colored "$CYAN" "💡 Create a new service by running: $0"
+        print_colored "$(c_warning)" "No active services found to test."
+        print_colored "$(c_secondary)" "💡 Create a new service by running: $0"
         return 0
     fi
     
@@ -208,7 +257,7 @@ test_all_services() {
         ((tested++))
         verbose_log "Testing service $tested: $name"
         
-        print_colored "$CYAN" "🔍 Testing service $tested/$service_count: $name"
+        print_colored "$(c_secondary)" "🔍 Testing service $tested/$service_count: $name"
         
         # Debug service details
         verbose_log "Service details: name=$name, dir=$dir, port=$port, status=$status"
@@ -217,17 +266,17 @@ test_all_services() {
         if [[ "$status" == "ACTIVE" ]]; then
             ((active++))
             if [[ -n "$onion" ]]; then
-                print_colored "$GREEN" "  ✅ Tor service: ACTIVE ($onion)"
+                print_colored "$(c_success)" "  ✅ Tor service: ACTIVE ($onion)"
             else
-                print_colored "$GREEN" "  ✅ Tor service: ACTIVE (onion address not synced)"
+                print_colored "$(c_success)" "  ✅ Tor service: ACTIVE (onion address not synced)"
             fi
         else
-            print_colored "$YELLOW" "  ⚠️  Tor service: $status"
+            print_colored "$(c_warning)" "  ⚠️  Tor service: $status"
         fi
         
         # Check web server if port is available
         if [[ -n "$port" ]]; then
-            print_colored "$BLUE" "  🌐 Testing web server on port $port..."
+            print_colored "$(c_info)" "  🌐 Testing web server on port $port..."
             verbose_log "Calling check_web_server_status for port $port"
             
             local web_status
@@ -237,20 +286,20 @@ test_all_services() {
             case "$web_status" in
                 "RUNNING")
                     ((responsive++))
-                    print_colored "$GREEN" "  ✅ Web server: RUNNING on port $port"
+                    print_colored "$(c_success)" "  ✅ Web server: RUNNING on port $port"
                     ;;
                 "NOT_LISTENING")
-                    print_colored "$YELLOW" "  ⚠️  Web server: NOT LISTENING on port $port"
+                    print_colored "$(c_warning)" "  ⚠️  Web server: NOT LISTENING on port $port"
                     ;;
                 "NOT_RESPONDING")
-                    print_colored "$RED" "  ❌ Web server: NOT RESPONDING on port $port"
+                    print_colored "$(c_error)" "  ❌ Web server: NOT RESPONDING on port $port"
                     ;;
                 *)
-                    print_colored "$RED" "  ❌ Web server: UNKNOWN STATUS ($web_status)"
+                    print_colored "$(c_error)" "  ❌ Web server: UNKNOWN STATUS ($web_status)"
                     ;;
             esac
         else
-            print_colored "$WHITE" "  ℹ️  Web server: No port configured"
+            print_colored "$(c_text)" "  ℹ️  Web server: No port configured"
         fi
         
         echo
@@ -263,13 +312,13 @@ test_all_services() {
     verbose_log "Testing phase completed"
     
     # Final summary
-    print_colored "$CYAN" "📊 Test Summary:"
-    print_colored "$WHITE" "• Total services tested: $tested"
-    print_colored "$WHITE" "• Active Tor services: $active"
-    print_colored "$WHITE" "• Responsive web servers: $responsive"
+    print_colored "$(c_secondary)" "📊 Test Summary:"
+    print_colored "$(c_text)" "• Total services tested: $tested"
+    print_colored "$(c_text)" "• Active Tor services: $active"
+    print_colored "$(c_text)" "• Responsive web servers: $responsive"
     
     if [[ $tested -eq 0 ]]; then
-        print_colored "$YELLOW" "⚠️  No services were actually tested - check registry file"
+        print_colored "$(c_warning)" "⚠️  No services were actually tested - check registry file"
     fi
     
     verbose_log "test_all_services function completed successfully"
@@ -280,19 +329,19 @@ stop_service_web_server() {
     local service_name="$1"
     
     if [[ -z "$service_name" ]]; then
-        print_colored "$RED" "❌ Service name required"
+        print_colored "$(c_error)" "❌ Service name required"
         return 1
     fi
     
     # Check if service exists in registry
     if ! grep -q "^$service_name|" "$SERVICES_FILE" 2>/dev/null; then
-        print_colored "$RED" "❌ Service '$service_name' not found"
+        print_colored "$(c_error)" "❌ Service '$service_name' not found"
         return 1
     fi
     
     # Check if service is script-managed
     if ! is_script_managed "$service_name"; then
-        print_colored "$RED" "❌ Service '$service_name' is not managed by this script"
+        print_colored "$(c_error)" "❌ Service '$service_name' is not managed by this script"
         return 1
     fi
     
@@ -306,32 +355,51 @@ preview_removal() {
     local website_dir="$3"
     local port="$4"
     
-    print_colored "$CYAN" "📋 Preview of what will be removed:"
+    print_colored "$(c_secondary)" "📋 Preview of what will be removed:"
     echo
-    print_colored "$WHITE" "Directories to be deleted:"
-    print_colored "$RED" "  • $service_dir"
+    print_colored "$(c_text)" "Directories to be deleted:"
+    print_colored "$(c_error)" "  • Tor directory: $service_dir"
+    
+    # Check for website directories (both from registry and constructed path)
+    local website_paths_to_remove=()
     if [[ -n "$website_dir" ]] && [[ -d "$website_dir" ]]; then
-        print_colored "$RED" "  • $website_dir"
+        website_paths_to_remove+=("$website_dir")
     fi
     
-    echo
-    print_colored "$WHITE" "Torrc configuration lines to be removed:"
-    if grep -q "# Hidden Service Configuration - $service_name" "$TORRC_FILE" 2>/dev/null; then
-        print_colored "$RED" "  • # Hidden Service Configuration - $service_name"
-        print_colored "$RED" "  • HiddenServiceDir $service_dir/"
-        print_colored "$RED" "  • HiddenServicePort 80 127.0.0.1:$port"
+    # Also check constructed path for script-managed services
+    if is_script_managed "$service_name"; then
+        local constructed_website_dir="$TEST_SITE_BASE_DIR/$service_name"
+        if [[ -d "$constructed_website_dir" ]] && [[ "$constructed_website_dir" != "$website_dir" ]]; then
+            website_paths_to_remove+=("$constructed_website_dir")
+        fi
+    fi
+    
+    if [[ ${#website_paths_to_remove[@]} -gt 0 ]]; then
+        for website_path in "${website_paths_to_remove[@]}"; do
+            print_colored "$(c_error)" "  • Website directory: $website_path"
+        done
     else
-        print_colored "$YELLOW" "  • No torrc configuration found for this service"
+        print_colored "$(c_text)" "  • No website directories found"
     fi
     
     echo
-    print_colored "$WHITE" "Registry entry to be removed:"
-    print_colored "$RED" "  • Service record for '$service_name'"
+    print_colored "$(c_text)" "Torrc configuration lines to be removed:"
+    if grep -q "# Hidden Service Configuration - $service_name" "$TORRC_FILE" 2>/dev/null; then
+        print_colored "$(c_error)" "  • # Hidden Service Configuration - $service_name"
+        print_colored "$(c_error)" "  • HiddenServiceDir $service_dir/"
+        print_colored "$(c_error)" "  • HiddenServicePort 80 0.0.0.0:$port"
+    else
+        print_colored "$(c_warning)" "  • No torrc configuration found for this service"
+    fi
+    
+    echo
+    print_colored "$(c_text)" "Registry entry to be removed:"
+    print_colored "$(c_error)" "  • Service record for '$service_name'"
     
     if is_script_managed "$service_name"; then
         echo
-        print_colored "$WHITE" "Additional cleanup:"
-        print_colored "$RED" "  • PID files and process tracking"
+        print_colored "$(c_text)" "Additional cleanup:"
+        print_colored "$(c_error)" "  • PID files and process tracking"
     fi
 }
 
@@ -340,30 +408,30 @@ remove_hidden_service() {
     local service_name="$1"
     
     if [[ -z "$service_name" ]]; then
-        print_colored "$YELLOW" "Usage: $0 --remove SERVICE_NAME"
-        print_colored "$CYAN" "Available services:"
+        print_colored "$(c_warning)" "Usage: $0 --remove SERVICE_NAME"
+        print_colored "$(c_secondary)" "Available services:"
         if [[ -f "$SERVICES_FILE" ]]; then
             while IFS='|' read -r name dir port onion website status created; do
                 [[ "$name" =~ ^#.*$ ]] || [[ -z "$name" ]] && continue
-                print_colored "$WHITE" "  • $name"
+                print_colored "$(c_text)" "  • $name"
             done < "$SERVICES_FILE"
         else
-            print_colored "$YELLOW" "  No services found"
+            print_colored "$(c_warning)" "  No services found"
         fi
         return 1
     fi
     
     # Check if service exists in registry
     if ! grep -q "^$service_name|" "$SERVICES_FILE" 2>/dev/null; then
-        print_colored "$RED" "❌ Service '$service_name' not found in registry"
-        print_colored "$CYAN" "Available services:"
+        print_colored "$(c_error)" "❌ Service '$service_name' not found in registry"
+        print_colored "$(c_secondary)" "Available services:"
         if [[ -f "$SERVICES_FILE" ]]; then
             while IFS='|' read -r name dir port onion website status created; do
                 [[ "$name" =~ ^#.*$ ]] || [[ -z "$name" ]] && continue
-                print_colored "$WHITE" "  • $name"
+                print_colored "$(c_text)" "  • $name"
             done < "$SERVICES_FILE"
         else
-            print_colored "$YELLOW" "  No services found"
+            print_colored "$(c_warning)" "  No services found"
         fi
         return 1
     fi
@@ -373,7 +441,7 @@ remove_hidden_service() {
     service_info=$(grep "^$service_name|" "$SERVICES_FILE" 2>/dev/null)
     
     if [[ -z "$service_info" ]]; then
-        print_colored "$RED" "❌ Could not retrieve service information"
+        print_colored "$(c_error)" "❌ Could not retrieve service information"
         return 1
     fi
     
@@ -382,50 +450,50 @@ remove_hidden_service() {
     # Display service information
     clear
     print_header
-    print_colored "$RED" "⚠️  DANGER: PERMANENT REMOVAL WARNING ⚠️"
+    print_colored "$(c_error)" "⚠️  DANGER: PERMANENT REMOVAL WARNING ⚠️"
     echo
-    print_colored "$YELLOW" "You are about to PERMANENTLY remove the following hidden service:"
+    print_colored "$(c_warning)" "You are about to PERMANENTLY remove the following hidden service:"
     echo
-    print_colored "$WHITE" "Service Name: $name"
-    print_colored "$WHITE" "Onion Address: ${onion:-'<not generated>'}"
-    print_colored "$WHITE" "Port: ${port:-'N/A'}"
-    print_colored "$WHITE" "Hidden Service Directory: $dir"
-    print_colored "$WHITE" "Website Directory: ${website:-'N/A'}"
-    print_colored "$WHITE" "Created: ${created:-'Unknown'}"
+    print_colored "$(c_text)" "Service Name: $name"
+    print_colored "$(c_text)" "Onion Address: ${onion:-'<not generated>'}"
+    print_colored "$(c_text)" "Port: ${port:-'N/A'}"
+    print_colored "$(c_text)" "Hidden Service Directory: $dir"
+    print_colored "$(c_text)" "Website Directory: ${website:-'N/A'}"
+    print_colored "$(c_text)" "Created: ${created:-'Unknown'}"
     echo
     
     # Show preview of what will be removed
     preview_removal "$service_name" "$dir" "$website" "$port"
     
     echo
-    print_colored "$RED" "⚠️  THIS ACTION CANNOT BE UNDONE! ⚠️"
-    print_colored "$RED" "⚠️  The .onion address will be LOST FOREVER! ⚠️"
-    print_colored "$RED" "⚠️  All website files will be DELETED! ⚠️"
+    print_colored "$(c_error)" "⚠️  THIS ACTION CANNOT BE UNDONE! ⚠️"
+    print_colored "$(c_error)" "⚠️  The .onion address will be LOST FOREVER! ⚠️"
+    print_colored "$(c_error)" "⚠️  All website files will be DELETED! ⚠️"
     echo
     
     # Multiple confirmation prompts
     if ! ask_yes_no "Are you ABSOLUTELY SURE you want to remove this hidden service?"; then
-        print_colored "$GREEN" "✅ Removal cancelled - service preserved"
+        print_colored "$(c_success)" "✅ Removal cancelled - service preserved"
         return 0
     fi
     
     if ! ask_yes_no "This will PERMANENTLY DELETE the .onion address. Continue?"; then
-        print_colored "$GREEN" "✅ Removal cancelled - service preserved"
+        print_colored "$(c_success)" "✅ Removal cancelled - service preserved"
         return 0
     fi
     
     if ! ask_yes_no "FINAL WARNING: Remove hidden service '$service_name' forever?"; then
-        print_colored "$GREEN" "✅ Removal cancelled - service preserved"
+        print_colored "$(c_success)" "✅ Removal cancelled - service preserved"
         return 0
     fi
     
     # Stop web server if it's running
     if is_script_managed "$service_name"; then
-        print_colored "$BLUE" "🛑 Stopping web server..."
+        print_colored "$(c_process)" "🛑 Stopping web server..."
         stop_web_server "$service_name" 2>/dev/null || true
     fi
     
-    print_colored "$BLUE" "🗑️ Starting removal process..."
+    print_colored "$(c_process)" "🗑️ Starting removal process..."
     
     # Remove from torrc
     remove_from_torrc "$dir" "$service_name"
@@ -437,15 +505,15 @@ remove_hidden_service() {
     remove_service_from_registry "$service_name"
     
     # Restart Tor to apply changes
-    print_colored "$BLUE" "🔄 Restarting Tor service to apply changes..."
+    print_colored "$(c_process)" "🔄 Restarting Tor service to apply changes..."
     if systemctl restart tor 2>/dev/null; then
-        print_colored "$GREEN" "✅ Tor service restarted successfully"
+        print_colored "$(c_success)" "✅ Tor service restarted successfully"
     else
-        print_colored "$YELLOW" "⚠️  Please manually restart Tor service: sudo systemctl restart tor"
+        print_colored "$(c_warning)" "⚠️  Please manually restart Tor service: sudo systemctl restart tor"
     fi
     
-    print_colored "$GREEN" "✅ Hidden service '$service_name' has been completely removed"
-    print_colored "$YELLOW" "💡 The .onion address is now permanently inaccessible"
+    print_colored "$(c_success)" "✅ Hidden service '$service_name' has been completely removed"
+    print_colored "$(c_warning)" "💡 The .onion address is now permanently inaccessible"
     
     return 0
 }
@@ -456,7 +524,7 @@ parse_args() {
         case $1 in
             -V|--verbose)
                 VERBOSE=true
-                print_colored "$GREEN" "✅ Verbose mode enabled"
+                print_colored "$(c_success)" "✅ Verbose mode enabled"
                 shift
                 ;;
             -l|--list)
@@ -465,15 +533,15 @@ parse_args() {
                 exit 0
                 ;;
             -t|--test)
-                print_colored "$BLUE" "🔧 Initializing service tracking..."
+                print_colored "$(c_process)" "🔧 Initializing service tracking..."
                 init_service_tracking
                 test_all_services
                 exit $?
                 ;;
             -s|--stop)
                 if [[ -z "${2:-}" ]]; then
-                    print_colored "$RED" "❌ Service name required for --stop option"
-                    print_colored "$YELLOW" "Usage: $0 --stop SERVICE_NAME"
+                    print_colored "$(c_error)" "❌ Service name required for --stop option"
+                    print_colored "$(c_warning)" "Usage: $0 --stop SERVICE_NAME"
                     show_usage
                 fi
                 init_service_tracking
@@ -482,8 +550,8 @@ parse_args() {
                 ;;
             -r|--remove)
                 if [[ -z "${2:-}" ]]; then
-                    print_colored "$RED" "❌ Service name required for --remove option"
-                    print_colored "$YELLOW" "Usage: $0 --remove SERVICE_NAME"
+                    print_colored "$(c_error)" "❌ Service name required for --remove option"
+                    print_colored "$(c_warning)" "Usage: $0 --remove SERVICE_NAME"
                     init_service_tracking
                     remove_hidden_service ""
                     exit 1
@@ -496,7 +564,7 @@ parse_args() {
                 show_usage
                 ;;
             *)
-                print_colored "$RED" "❌ Unknown option: $1"
+                print_colored "$(c_error)" "❌ Unknown option: $1"
                 show_usage
                 ;;
         esac
@@ -520,8 +588,9 @@ main() {
     
     # Confirmation
     if ! ask_yes_no "Do you want to proceed with creating this new Tor hidden service?"; then
-        print_colored "$YELLOW" "Installation cancelled by user"
+        print_colored "$(c_warning)" "Installation cancelled by user"
         verbose_log "Installation cancelled by user"
+        sleep 2
         exit 0
     fi
     
@@ -539,7 +608,8 @@ main() {
     # Start Tor
     verbose_log "Starting Tor service..."
     if ! start_tor; then
-        print_colored "$RED" "❌ Failed to start Tor service properly"
+        print_colored "$(c_error)" "❌ Failed to start Tor service properly"
+        sleep 3
         exit 1
     fi
     
@@ -560,18 +630,21 @@ main() {
         local service_name=$(basename "$HIDDEN_SERVICE_DIR")
         update_service_in_registry "$service_name" "website_dir" ""
         verbose_log "User declined test website setup"
+        sleep 1
     fi
     
     # Show results
     verbose_log "Displaying final results..."
+    print_colored "$(c_process)" "🎯 Preparing final results..."
+    sleep 2
     show_results
     
-    print_colored "$GREEN" "✨ All done! Enjoy your Tor hidden service!"
+    print_colored "$(c_success)" "✨ All done! Enjoy your Tor hidden service!"
     verbose_log "Script completed successfully"
 }
 
 # Trap to handle cleanup
-trap 'print_colored "$RED" "Script interrupted"; exit 1' INT TERM
+trap 'print_colored "$(c_error)" "Script interrupted"; exit 1' INT TERM
 
 # Run main function if this script is executed directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

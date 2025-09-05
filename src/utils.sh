@@ -4,12 +4,21 @@
 # utils.sh - Constants and utility definitions
 # This file contains all configuration constants and basic utilities
 
+# ================================================================================
+# COLOR SCHEME CONFIGURATION
+# ================================================================================
+# Change this value to switch color schemes throughout the entire script
+# Valid options: "STANDARD", "HTB", "PASTEL"
+COLOR_SCHEME="PASTEL"
+
 # Color resets
 WHITE='\033[1;37m'
 NC='\033[0m'
 BLACK='\033[0;30m'
 
-# Color definitions (using ANSI escape codes - no external dependencies)
+# ================================================================================
+# STANDARD COLOR PALETTE
+# ================================================================================
 STANDARD_GREEN='\033[0;32m'             # (1) Standard green
 STANDARD_ORANGE="\033[38;5;208m"        # (2) Standard orange
 STANDARD_PURPLE='\033[0;35m'            # (3) Standard purple
@@ -26,7 +35,9 @@ STANDARD_MATRIX_GREEN="\033[38;5;40m"   # (13) Standard matrix green
 STANDARD_LIME="\033[38;5;118m"          # (14) Standard lime green
 STANDARD_BLURPLE="\033[38;5;63m"        # (15) Standard blurple
 
-# HTB Color Palette
+# ================================================================================
+# HTB COLOR PALETTE (Hack The Box inspired)
+# ================================================================================
 HTB_GREEN="\033[38;5;82m"               # (1) Bright neon green
 HTB_ORANGE="\033[38;5;214m"             # (2) HTB signature orange
 HTB_PURPLE="\033[38;5;99m"              # (3) Deep purple
@@ -43,7 +54,9 @@ HTB_MATRIX_GREEN="\033[38;5;46m"        # (13) Matrix-style green
 HTB_LIME="\033[38;5;118m"               # (14) Lime
 HTB_BLURPLE="\033[38;5;63m"             # (15) Blurple
 
-# Pastel Soft Color Palette
+# ================================================================================
+# PASTEL COLOR PALETTE (Soft and pleasant)
+# ================================================================================
 PASTEL_GREEN="\033[38;5;120m"           # (1) Soft pastel green
 PASTEL_ORANGE="\033[38;5;215m"          # (2) Soft pastel orange
 PASTEL_PURPLE="\033[38;5;141m"          # (3) Soft pastel purple
@@ -60,8 +73,100 @@ PASTEL_MATRIX_GREEN="\033[38;5;120m"    # (13) Soft pastel matrix green
 PASTEL_LIME="\033[38;5;118m"            # (14) Soft pastel lime green
 PASTEL_BLURPLE="\033[38;5;177m"         # (15) Soft pastel blurple
 
+# ================================================================================
+# DYNAMIC COLOR MAPPING FUNCTIONS
+# ================================================================================
+# These functions return the appropriate color based on COLOR_SCHEME setting
 
-# DARKOLIVEGREEN3="\033[48;5;149m"
+get_color() {
+    local color_name="$1"
+    case "$COLOR_SCHEME" in
+        "STANDARD")
+            case "$color_name" in
+                "PRIMARY") echo "$STANDARD_GREEN" ;;
+                "SECONDARY") echo "$STANDARD_ORANGE" ;;
+                "ACCENT") echo "$STANDARD_PURPLE" ;;
+                "WARNING") echo "$STANDARD_YELLOW" ;;
+                "INFO") echo "$STANDARD_BLUE" ;;
+                "ERROR") echo "$STANDARD_RED" ;;
+                "SUCCESS") echo "$STANDARD_GREEN" ;;
+                "HIGHLIGHT") echo "$STANDARD_CYAN" ;;
+                "SPECIAL") echo "$STANDARD_PINK" ;;
+                "MUTED") echo "$STANDARD_GREY" ;;
+                "BORDER") echo "$STANDARD_DARK_GREY" ;;
+                "TEXT") echo "$STANDARD_LIGHT_GREY" ;;
+                "PROCESS") echo "$STANDARD_NEON_BLUE" ;;
+                "MATRIX") echo "$STANDARD_MATRIX_GREEN" ;;
+                "BRIGHT") echo "$STANDARD_LIME" ;;
+                "BLURPLE") echo "$STANDARD_BLURPLE" ;;
+                *) echo "$NC" ;;
+            esac
+            ;;
+        "HTB")
+            case "$color_name" in
+                "PRIMARY") echo "$HTB_GREEN" ;;
+                "SECONDARY") echo "$HTB_ORANGE" ;;
+                "ACCENT") echo "$HTB_PURPLE" ;;
+                "WARNING") echo "$HTB_YELLOW" ;;
+                "INFO") echo "$HTB_BLUE" ;;
+                "ERROR") echo "$HTB_RED" ;;
+                "SUCCESS") echo "$HTB_GREEN" ;;
+                "HIGHLIGHT") echo "$HTB_CYAN" ;;
+                "SPECIAL") echo "$HTB_PINK" ;;
+                "MUTED") echo "$HTB_GREY" ;;
+                "BORDER") echo "$HTB_DARK_GREY" ;;
+                "TEXT") echo "$HTB_LIGHT_GREY" ;;
+                "PROCESS") echo "$HTB_NEON_BLUE" ;;
+                "MATRIX") echo "$HTB_MATRIX_GREEN" ;;
+                "BRIGHT") echo "$HTB_LIME" ;;
+                "BLURPLE") echo "$HTB_BLURPLE" ;;
+                *) echo "$NC" ;;
+            esac
+            ;;
+        "PASTEL")
+            case "$color_name" in
+                "PRIMARY") echo "$PASTEL_GREEN" ;;
+                "SECONDARY") echo "$PASTEL_ORANGE" ;;
+                "ACCENT") echo "$PASTEL_PURPLE" ;;
+                "WARNING") echo "$PASTEL_YELLOW" ;;
+                "INFO") echo "$PASTEL_BLUE" ;;
+                "ERROR") echo "$PASTEL_RED" ;;
+                "SUCCESS") echo "$PASTEL_GREEN" ;;
+                "HIGHLIGHT") echo "$PASTEL_CYAN" ;;
+                "SPECIAL") echo "$PASTEL_PINK" ;;
+                "MUTED") echo "$PASTEL_GREY" ;;
+                "BORDER") echo "$PASTEL_DARK_GREY" ;;
+                "TEXT") echo "$PASTEL_LIGHT_GREY" ;;
+                "PROCESS") echo "$PASTEL_NEON_BLUE" ;;
+                "MATRIX") echo "$PASTEL_MATRIX_GREEN" ;;
+                "BRIGHT") echo "$PASTEL_LIME" ;;
+                "BLURPLE") echo "$PASTEL_BLURPLE" ;;
+                *) echo "$NC" ;;
+            esac
+            ;;
+        *)
+            echo "$NC"
+            ;;
+    esac
+}
+
+# Convenience functions for common colors
+c_primary() { get_color "PRIMARY"; }
+c_secondary() { get_color "SECONDARY"; }
+c_accent() { get_color "ACCENT"; }
+c_warning() { get_color "WARNING"; }
+c_info() { get_color "INFO"; }
+c_error() { get_color "ERROR"; }
+c_success() { get_color "SUCCESS"; }
+c_highlight() { get_color "HIGHLIGHT"; }
+c_special() { get_color "SPECIAL"; }
+c_muted() { get_color "MUTED"; }
+c_border() { get_color "BORDER"; }
+c_text() { get_color "TEXT"; }
+c_process() { get_color "PROCESS"; }
+c_matrix() { get_color "MATRIX"; }
+c_bright() { get_color "BRIGHT"; }
+c_blurple() { get_color "BLURPLE"; }
 
 # Text styles
 UNDERLINE="\033[4m"
@@ -93,7 +198,7 @@ SERVICE_MANAGER=""
 # Function to print verbose output
 verbose_log() {
     if [[ "$VERBOSE" == true ]]; then
-        print_colored "$PASTEL_CYAN" "[VERBOSE] $1"
+        print_colored "$(c_highlight)" "[VERBOSE] $1"
     fi
 }
 
@@ -114,27 +219,186 @@ generate_random_string() {
 check_root() {
     verbose_log "Checking if running as root..."
     if [[ $EUID -ne 0 ]]; then
-        print_colored "$PASTEL_RED" "❌ This script must be run as root!"
-        print_colored "$PASTEL_YELLOW" "Please run: sudo $0"
+        print_colored "$(c_error)" "❌ This script must be run as root!"
+        print_colored "$(c_warning)" "Please run: sudo $0"
         exit 1
     fi
     verbose_log "✅ Running as root"
 }
 
-# Function to print header
+# Function to get header symbols based on color scheme
+get_header_symbols() {
+    case "$COLOR_SCHEME" in
+        "HTB")
+            echo "[▓▓▓] ANONYMITY ▓ SECURITY ▓ PRIVACY [▓▓▓]"
+            ;;
+        "PASTEL")
+            echo "☁ ANONYMITY ☁ SECURITY ☁ PRIVACY ☁"
+            ;;
+        "STANDARD")
+            echo "● ANONYMITY ● SECURITY ● PRIVACY ●"
+            ;;
+        *)
+            echo "● ANONYMITY ● SECURITY ● PRIVACY ●"
+            ;;
+    esac
+}
+
+# Function to print header with dynamic colors and symbols
+
+# note to self: absolute nightmare to format this header like this
 print_header() {
     clear
     echo
-    print_colored "$PASTEL_DARK_GREY" "    ╔═══════════════════════════════════════════════════════════════╗"
-    print_colored "$PASTEL_DARK_GREY" "    ║$(echo -e "$PASTEL_GREEN                    Tor Hidden Service Setup                   $PASTEL_DARK_GREY")║"
-    print_colored "$PASTEL_DARK_GREY" "    ║$(echo -e "$PASTEL_ORANGE                     Automated Deployment                      $PASTEL_DARK_GREY")║"
-    print_colored "$PASTEL_DARK_GREY" "    ╠═══════════════════════════════════════════════════════════════╣"
-    print_colored "$PASTEL_DARK_GREY" "    ║$(echo -e "$PASTEL_PURPLE         ☁ ANONYMITY ${PASTEL_CYAN}☁ SECURITY ${PASTEL_PINK}☁ PRIVACY ☁        $PASTEL_DARK_GREY")║"
-    print_colored "$PASTEL_DARK_GREY" "    ╚═══════════════════════════════════════════════════════════════╝"
+    print_colored "$(c_border)" "    ╔═══════════════════════════════════════════════════════════════╗"
+    print_colored "$(c_border)" "    ║$(echo -e "$(c_primary)                    Tor Hidden Service Setup                   $(c_border)")║"
+    print_colored "$(c_border)" "    ║$(echo -e "$(c_secondary)                     Automated Deployment                      $(c_border)")║"
+    print_colored "$(c_border)" "    ╠═══════════════════════════════════════════════════════════════╣"
+    local symbols
+    symbols=$(get_header_symbols)
+    case "$COLOR_SCHEME" in
+        "HTB")
+            print_colored "$(c_border)" "    ║$(echo -e "$(c_matrix)      $symbols        $(c_border)")║"
+            ;;
+        "PASTEL")
+            print_colored "$(c_border)" "    ║$(echo -e "$(c_accent)         $(c_highlight)☁ ANONYMITY $(c_special)☁ SECURITY $(c_primary)☁ PRIVACY ☁        $(c_border)")║"
+            ;;
+        *)
+            print_colored "$(c_border)" "    ║$(echo -e "$(c_accent)         $symbols        $(c_border)")║"
+            ;;
+    esac
+    print_colored "$(c_border)" "    ╚═══════════════════════════════════════════════════════════════╝"
     echo
     if [[ "$VERBOSE" == true ]]; then
-        print_colored "$PASTEL_CYAN" "    [VERBOSE MODE ENABLED] - Detailed Output    "
+        print_colored "$(c_highlight)" "    [VERBOSE MODE ENABLED] - Enhanced logging active ($COLOR_SCHEME colors)"
         echo
     fi
+}
+
+# Function to get web page style based on color scheme
+
+# note to self: also a nightmare to write css in a .sh with no syntax highlight
+# should move to a separate .css file but whatever
+get_webpage_style() {
+    case "$COLOR_SCHEME" in
+        "HTB")
+            cat << 'EOF'
+        body { 
+            font-family: 'Courier New', monospace; 
+            max-width: 800px; 
+            margin: 0 auto; 
+            padding: 20px;
+            background: #0d1117;
+            color: #9be9a8;
+            line-height: 1.6;
+        }
+        .container { 
+            text-align: center; 
+            background: #161b22;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+            border: 1px solid #30363d;
+        }
+        .success { 
+            color: #7c3aed; 
+            font-size: 28px;
+            margin-bottom: 20px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #7c3aed;
+        }
+        .info { 
+            background: #21262d;
+            padding: 25px;
+            border-radius: 6px;
+            margin: 20px 0;
+            text-align: left;
+            border-left: 4px solid #f59e0b;
+        }
+        h3 {
+            color: #f59e0b;
+            margin-top: 0;
+        }
+EOF
+            ;;
+        "PASTEL")
+            cat << 'EOF'
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            max-width: 800px; 
+            margin: 0 auto; 
+            padding: 20px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            color: #4a5568;
+            line-height: 1.6;
+        }
+        .container { 
+            text-align: center; 
+            background: rgba(255, 255, 255, 0.9);
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+        .success { 
+            color: #48bb78; 
+            font-size: 28px;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+        .info { 
+            background: rgba(237, 242, 247, 0.8);
+            padding: 25px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: left;
+            border-left: 4px solid #667eea;
+        }
+        h3 {
+            color: #667eea;
+            margin-top: 0;
+        }
+EOF
+            ;;
+        *)
+            cat << 'EOF'
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 800px; 
+            margin: 0 auto; 
+            padding: 20px;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        .container { 
+            text-align: center; 
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border: 1px solid #ddd;
+        }
+        .success { 
+            color: #28a745; 
+            font-size: 28px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .info { 
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 5px;
+            margin: 20px 0;
+            text-align: left;
+            border-left: 4px solid #007bff;
+        }
+        h3 {
+            color: #007bff;
+            margin-top: 0;
+        }
+EOF
+            ;;
+    esac
 }
 

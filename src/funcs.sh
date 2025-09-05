@@ -8,7 +8,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/utils.sh"
 
 # Function to detect distribution and package manager
 detect_system() {
-    print_colored "$BLUE" "🔍 Detecting system distribution..."
+    print_colored "$(c_info)" "🔍 Detecting system distribution..."
     verbose_log "Checking available package managers..."
     
     if command -v apt-get >/dev/null 2>&1; then
@@ -46,8 +46,8 @@ detect_system() {
         DISTRO="suse-based"
         verbose_log "Found zypper package manager (SUSE-based)"
     else
-        print_colored "$RED" "❌ Unsupported package manager detected!"
-        print_colored "$YELLOW" "This script supports: apt, yum, dnf, pacman, zypper"
+        print_colored "$(c_error)" "❌ Unsupported package manager detected!"
+        print_colored "$(c_warning)" "This script supports: apt, yum, dnf, pacman, zypper"
         exit 1
     fi
     
@@ -60,12 +60,12 @@ detect_system() {
         SERVICE_MANAGER="sysv"
         verbose_log "Found SysV service manager"
     else
-        print_colored "$YELLOW" "⚠️  Warning: No supported service manager found"
+        print_colored "$(c_warning)" "⚠️  Warning: No supported service manager found"
         SERVICE_MANAGER="none"
         verbose_log "No supported service manager found"
     fi
     
-    print_colored "$GREEN" "✅ Detected: $DISTRO ($PACKAGE_MANAGER) with $SERVICE_MANAGER"
+    print_colored "$(c_success)" "✅ Detected: $DISTRO ($PACKAGE_MANAGER) with $SERVICE_MANAGER"
     verbose_log "System detection complete"
     sleep 2
 }
@@ -80,19 +80,19 @@ show_menu() {
     while true; do
         clear
         print_header
-        print_colored "$CYAN" "$title"
+        print_colored "$(c_highlight)" "$title"
         echo
         
         for i in "${!options[@]}"; do
             if [[ $i -eq $selected ]]; then
-                print_colored "$GREEN" "► ${options[$i]}"
+                print_colored "$(c_success)" "► ${options[$i]}"
             else
                 print_colored "$WHITE" "  ${options[$i]}"
             fi
         done
         
         echo
-        print_colored "$YELLOW" "Use ↑/↓ arrow keys to navigate, Enter to select"
+        print_colored "$(c_warning)" "Use ↑/↓ arrow keys to navigate, Enter to select"
         
         read -rsn1 key
         case $key in
@@ -121,7 +121,7 @@ ask_yes_no() {
 install_packages() {
     local packages=("$@")
     
-    print_colored "$BLUE" "📦 Installing packages: ${packages[*]}"
+    print_colored "$(c_process)" "📦 Installing packages: ${packages[*]}"
     verbose_log "Package manager: $PACKAGE_MANAGER"
     verbose_log "Install command: $INSTALL_CMD"
     
@@ -151,11 +151,11 @@ install_packages() {
 # Function to check if Tor is installed
 check_tor_installation() {
     if command -v tor >/dev/null 2>&1; then
-        print_colored "$HTB_GREEN" "✅ Tor is already installed"
-        sleep 1.5  # Give user time to read the message
+        print_colored "$(c_success)" "✅ Tor is already installed"
+        sleep 1.5
         return 0
     else
-        print_colored "$HTB_YELLOW" "⚠️  Tor is not installed"
+        print_colored "$(c_warning)" "⚠️  Tor is not installed"
         sleep 1.5
         return 1
     fi
@@ -163,7 +163,7 @@ check_tor_installation() {
 
 # Function to install Tor
 install_tor() {
-    print_colored "$HTB_NEON_BLUE" "🔧 Installing Tor..."
+    print_colored "$(c_process)" "🔧 Installing Tor..."
     
     case $PACKAGE_MANAGER in
         "apt")
@@ -180,7 +180,7 @@ install_tor() {
             ;;
     esac
     
-    print_colored "$HTB_GREEN" "✅ Tor installation completed"
+    print_colored "$(c_success)" "✅ Tor installation completed"
     sleep 2
 }
 
@@ -242,12 +242,12 @@ manage_tor_service() {
 
 # Function to install web dependencies
 install_web_dependencies() {
-    print_colored "$HTB_NEON_BLUE" "📦 Installing web dependencies..."
+    print_colored "$(c_process)" "📦 Installing web dependencies..."
     
     # Check if Python3 is installed
     if ! command -v python3 >/dev/null 2>&1; then
         verbose_log "Python3 not found, installing..."
-        print_colored "$HTB_NEON_BLUE" "🔧 Installing Python3..."
+        print_colored "$(c_process)" "🔧 Installing Python3..."
         case $PACKAGE_MANAGER in
             "apt")
                 install_packages python3
@@ -262,10 +262,10 @@ install_web_dependencies() {
                 install_packages python3
                 ;;
         esac
-        print_colored "$HTB_GREEN" "✅ Python3 installed successfully"
+        print_colored "$(c_success)" "✅ Python3 installed successfully"
         sleep 1.5 
     else
-        print_colored "$HTB_GREEN" "✅ Python3 is already installed"
+        print_colored "$(c_success)" "✅ Python3 is already installed"
         verbose_log "Python3 found: $(python3 --version)"
         sleep 1
     fi
@@ -273,7 +273,7 @@ install_web_dependencies() {
     # Check if curl is installed (for server testing)
     if ! command -v curl >/dev/null 2>&1; then
         verbose_log "curl not found, installing..."
-        print_colored "$HTB_NEON_BLUE" "🔧 Installing curl..."
+        print_colored "$(c_process)" "🔧 Installing curl..."
         case $PACKAGE_MANAGER in
             "apt")
                 install_packages curl
@@ -288,19 +288,19 @@ install_web_dependencies() {
                 install_packages curl
                 ;;
         esac
-        print_colored "$HTB_GREEN" "✅ curl installed successfully"
+        print_colored "$(c_success)" "✅ curl installed successfully"
         sleep 1.5
     else
         verbose_log "curl is already installed"
     fi
     
-    print_colored "$HTB_GREEN" "✅ Web dependencies installed"
+    print_colored "$(c_success)" "✅ Web dependencies installed"
     sleep 1.5
 }
 
 # Function to configure Tor hidden service
 configure_tor() {
-    print_colored "$HTB_NEON_BLUE" "⚙️  Configuring Tor hidden service..."
+    print_colored "$(c_process)" "⚙️  Configuring Tor hidden service..."
     
     local service_name=$(basename "$HIDDEN_SERVICE_DIR")
     
@@ -311,13 +311,13 @@ configure_tor() {
     # Backup original torrc
     if [[ -f "$TORRC_FILE" ]] && [[ ! -f "$TORRC_FILE.backup" ]]; then
         cp "$TORRC_FILE" "$TORRC_FILE.backup"
-        print_colored "$HTB_GREEN" "✅ Backed up original torrc file"
+        print_colored "$(c_success)" "✅ Backed up original torrc file"
         sleep 1
     fi
     
     # Check if this hidden service is already configured
     if grep -q "HiddenServiceDir $HIDDEN_SERVICE_DIR" "$TORRC_FILE" 2>/dev/null; then
-        print_colored "$HTB_YELLOW" "⚠️  Hidden service already configured in torrc"
+        print_colored "$(c_warning)" "⚠️  Hidden service already configured in torrc"
         sleep 2
         return 0
     fi
@@ -326,23 +326,24 @@ configure_tor() {
     verbose_log "Adding hidden service configuration to torrc..."
     verbose_log "Service name: $service_name"
     verbose_log "Hidden service directory: $hs_dir_log"
-    verbose_log "Hidden service port mapping: 80 -> 127.0.0.1:$hs_port_log"
+    verbose_log "Hidden service port mapping: 80 -> 0.0.0.0:$hs_port_log (all interfaces)"
     
     # Add hidden service configuration without any logging in between
+    # Changed from 127.0.0.1 to 0.0.0.0 to allow access from all interfaces
     cat >> "$TORRC_FILE" << EOF
 
 # Hidden Service Configuration - $service_name
 HiddenServiceDir $HIDDEN_SERVICE_DIR/
-HiddenServicePort 80 127.0.0.1:$TEST_SITE_PORT
+HiddenServicePort 80 0.0.0.0:$TEST_SITE_PORT
 EOF
     
-    print_colored "$HTB_GREEN" "✅ Tor configuration updated"
+    print_colored "$(c_success)" "✅ Tor configuration updated (broadcasting on all interfaces)"
     sleep 2
 }
 
 # Function to start and enable Tor
 start_tor() {
-    print_colored "$HTB_NEON_BLUE" "🚀 Starting Tor service..."
+    print_colored "$(c_process)" "🚀 Starting Tor service..."
     verbose_log "Service manager: $SERVICE_MANAGER"
     
     local service_name=$(basename "$HIDDEN_SERVICE_DIR")
@@ -356,11 +357,11 @@ start_tor() {
             # Start tor service
             verbose_log "Starting Tor service with systemctl..."
             if systemctl restart tor; then
-                print_colored "$HTB_GREEN" "✅ Tor service started successfully"
+                print_colored "$(c_success)" "✅ Tor service started successfully"
                 verbose_log "Tor service started successfully"
                 sleep 1.5
             else
-                print_colored "$HTB_RED" "❌ Failed to start Tor service"
+                print_colored "$(c_error)" "❌ Failed to start Tor service"
                 update_service_in_registry "$service_name" "status" "ERROR"
                 sleep 2
                 return 1
@@ -368,13 +369,13 @@ start_tor() {
             
             if ask_yes_no "Do you want Tor to start automatically on system boot?"; then
                 verbose_log "Enabling Tor service for auto-start..."
-                print_colored "$HTB_NEON_BLUE" "🔧 Enabling Tor for auto-start..."
+                print_colored "$(c_process)" "🔧 Enabling Tor for auto-start..."
                 if systemctl enable tor 2>/dev/null; then
-                    print_colored "$HTB_GREEN" "✅ Tor enabled for auto-start"
+                    print_colored "$(c_success)" "✅ Tor enabled for auto-start"
                     verbose_log "Tor enabled for auto-start"
                     sleep 1.5
                 else
-                    print_colored "$HTB_YELLOW" "⚠️  Could not enable auto-start (non-critical)"
+                    print_colored "$(c_warning)" "⚠️  Could not enable auto-start (non-critical)"
                     verbose_log "Could not enable auto-start"
                     sleep 2
                 fi
@@ -384,22 +385,22 @@ start_tor() {
             verbose_log "Using SysV service manager..."
             service tor stop 2>/dev/null || true
             if service tor start; then
-                print_colored "$HTB_GREEN" "✅ Tor service started successfully"
+                print_colored "$(c_success)" "✅ Tor service started successfully"
                 verbose_log "Tor service started with SysV"
                 sleep 1.5
             else
-                print_colored "$HTB_RED" "❌ Failed to start Tor service"
+                print_colored "$(c_error)" "❌ Failed to start Tor service"
                 update_service_in_registry "$service_name" "status" "ERROR"
                 sleep 2
                 return 1
             fi
-            print_colored "$HTB_YELLOW" "⚠️  Auto-start configuration varies by system"
+            print_colored "$(c_warning)" "⚠️  Auto-start configuration varies by system"
             sleep 2
             ;;
     esac
     
     # Wait for Tor to generate the hidden service
-    print_colored "$HTB_NEON_BLUE" "⏳ Waiting for Tor to generate hidden service..."
+    print_colored "$(c_process)" "⏳ Waiting for Tor to generate hidden service..."
     verbose_log "Waiting for hostname file: $HIDDEN_SERVICE_DIR/hostname"
     sleep 1
     
@@ -417,7 +418,7 @@ start_tor() {
         # Check if Tor is still running
         if ! pgrep -x tor >/dev/null; then
             echo
-            print_colored "$HTB_RED" "❌ Tor process died during startup"
+            print_colored "$(c_error)" "❌ Tor process died during startup"
             update_service_in_registry "$service_name" "status" "ERROR"
             sleep 2
             return 1
@@ -429,18 +430,18 @@ start_tor() {
         local onion_addr
         onion_addr=$(cat "$HIDDEN_SERVICE_DIR/hostname")
         
-        print_colored "$HTB_GREEN" "✅ Hidden service generated successfully"
+        print_colored "$(c_success)" "✅ Hidden service generated successfully"
         verbose_log "Hostname file found: $HIDDEN_SERVICE_DIR/hostname"
         verbose_log "Generated .onion address: $onion_addr"
         sleep 2
-        print_colored "$HTB_GREEN" "🎉 Your hidden service is available at: $onion_addr"
+        print_colored "$(c_success)" "🎉 Your hidden service is available at: $onion_addr"
         # Update registry with onion address and active status
         update_service_in_registry "$service_name" "onion_address" "$onion_addr"
         update_service_in_registry "$service_name" "status" "ACTIVE"
         
         return 0
     else
-        print_colored "$HTB_RED" "❌ Failed to generate hidden service after ${max_wait} attempts"
+        print_colored "$(c_error)" "❌ Failed to generate hidden service after ${max_wait} attempts"
         update_service_in_registry "$service_name" "status" "ERROR"
         sleep 3
         return 1
@@ -449,12 +450,16 @@ start_tor() {
 
 # Function to create test website
 create_test_website() {
-    print_colored "$HTB_NEON_BLUE" "🌐 Creating test website..."
+    print_colored "$(c_process)" "🌐 Creating test website..."
     
     # Create directory
     mkdir -p "$TEST_SITE_DIR"
     
-    # Create simple HTML page with dynamic port
+    # Get dynamic CSS based on color scheme
+    local webpage_style
+    webpage_style=$(get_webpage_style)
+    
+    # Create simple HTML page with dynamic port and styling
     cat > "$TEST_SITE_DIR/index.html" << EOF
 <!DOCTYPE html>
 <html lang="en">
@@ -463,39 +468,24 @@ create_test_website() {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tor Hidden Service - Test Page</title>
     <style>
-        body { 
-            font-family: Arial, sans-serif; 
-            max-width: 800px; 
-            margin: 0 auto; 
-            padding: 20px;
-            background: #1a1a1a;
-            color: #ffffff;
+$webpage_style
+        ul {
+            color: inherit;
         }
-        .container { 
-            text-align: center; 
-            background: #2d2d2d;
-            padding: 40px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        li {
+            margin: 8px 0;
         }
-        .success { 
-            color: #4CAF50; 
-            font-size: 24px;
-            margin-bottom: 20px;
+        .scheme-info {
+            font-size: 12px;
+            opacity: 0.7;
+            margin-top: 20px;
         }
-        .info { 
-            background: #333;
-            padding: 20px;
-            border-radius: 5px;
-            margin: 20px 0;
-            text-align: left;
-        }
-        .onion { 
-            font-family: monospace;
-            background: #444;
-            padding: 10px;
-            border-radius: 3px;
-            word-break: break-all;
+        .network-info {
+            background: rgba(200, 200, 200, 0.2);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #667eea;
         }
     </style>
 </head>
@@ -507,8 +497,17 @@ create_test_website() {
         <div class="info">
             <h3>📍 Service Information:</h3>
             <p><strong>Local Port:</strong> $TEST_SITE_PORT</p>
+            <p><strong>Network Binding:</strong> All interfaces (0.0.0.0)</p>
             <p><strong>Access:</strong> Via Tor Browser only</p>
             <p><strong>Security:</strong> Traffic is automatically encrypted through Tor</p>
+            <p><strong>Color Scheme:</strong> $COLOR_SCHEME</p>
+        </div>
+        
+        <div class="network-info">
+            <h3>🌐 Network Access:</h3>
+            <p><strong>Tor Hidden Service:</strong> Accessible globally via .onion address</p>
+            <p><strong>Local Network:</strong> Accessible from LAN via port $TEST_SITE_PORT</p>
+            <p><strong>Security Note:</strong> Local access bypasses Tor anonymity</p>
         </div>
         
         <div class="info">
@@ -518,16 +517,20 @@ create_test_website() {
                 <li>Configure your web application to run on port $TEST_SITE_PORT</li>
                 <li>Share your .onion address securely with intended users</li>
                 <li>Consider additional security measures for production use</li>
+                <li>Be aware that local network access bypasses Tor anonymity</li>
             </ul>
         </div>
         
-        <p><small>Generated by Tor Hidden Service Setup Script</small></p>
+        <div class="scheme-info">
+            <p><small>Generated by Tor Hidden Service Setup Script (Theme: $COLOR_SCHEME)</small></p>
+        </div>
     </div>
 </body>
 </html>
 EOF
     
     # Create simple Python web server script with dynamic port
+    # Changed to bind to 0.0.0.0 instead of 127.0.0.1 for all interfaces
     cat > "$TEST_SITE_DIR/server.py" << EOF
 #!/usr/bin/env python3
 import http.server
@@ -540,26 +543,40 @@ DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=DIRECTORY, **kwargs)
+    
+    def log_message(self, format, *args):
+        # Enhanced logging with client IP
+        client_ip = self.client_address[0]
+        print(f"[{self.log_date_time_string()}] {client_ip} - {format % args}")
 
 if __name__ == "__main__":
-    with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
-        print(f"Serving at http://127.0.0.1:{PORT}")
+    # Bind to all interfaces (0.0.0.0) instead of just localhost
+    with socketserver.TCPServer(("0.0.0.0", PORT), Handler) as httpd:
+        print(f"🌐 Serving at http://0.0.0.0:{PORT}")
+        print(f"📡 Accessible from:")
+        print(f"   • Tor Browser: via .onion address")
+        print(f"   • Local network: http://localhost:{PORT}")
+        print(f"   • LAN devices: http://[your-ip]:{PORT}")
+        print(f"⚠️  Note: Local access bypasses Tor anonymity!")
+        print("Press Ctrl+C to stop the server")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
-            print("\nServer stopped.")
+            print("\n🛑 Server stopped.")
 EOF
     
     chmod +x "$TEST_SITE_DIR/server.py"
     
-    print_colored "$HTB_GREEN" "✅ Test website created at $TEST_SITE_DIR"
-    verbose_log "Website created with port $TEST_SITE_PORT"
+    print_colored "$(c_success)" "✅ Test website created at $TEST_SITE_DIR"
+    print_colored "$(c_warning)" "⚠️  Server will bind to all interfaces (0.0.0.0:$TEST_SITE_PORT)"
+    print_colored "$(c_warning)" "⚠️  Local network access bypasses Tor anonymity!"
+    verbose_log "Website created with port $TEST_SITE_PORT using $COLOR_SCHEME theme, binding to all interfaces"
     sleep 1.5
 }
 
 # Function to setup dynamic paths and ports
 setup_dynamic_config() {
-    print_colored "$BLUE" "🔍 Setting up new hidden service configuration..."
+    print_colored "$(c_info)" "🔍 Setting up new hidden service configuration..."
     
     # Initialize service tracking
     init_service_tracking
@@ -584,7 +601,7 @@ setup_dynamic_config() {
     while ss -tlpn 2>/dev/null | grep -q ":$test_port " || [[ " ${existing_ports[*]} " =~ " $test_port " ]]; do
         ((test_port++))
         if [[ $test_port -gt 65535 ]]; then
-            print_colored "$RED" "❌ No available ports found"
+            print_colored "$(c_error)" "❌ No available ports found"
             exit 1
         fi
     done
@@ -599,10 +616,10 @@ setup_dynamic_config() {
     verbose_log "  Port: $TEST_SITE_PORT"
     verbose_log "  Website dir (potential): $TEST_SITE_DIR"
     
-    print_colored "$GREEN" "✅ Service name: $service_name"
-    print_colored "$GREEN" "✅ Hidden service directory: $HIDDEN_SERVICE_DIR"
-    print_colored "$GREEN" "✅ Local port: $TEST_SITE_PORT"
-    print_colored "$GREEN" "✅ Website directory: $TEST_SITE_DIR"
+    print_colored "$(c_success)" "✅ Service name: $service_name"
+    print_colored "$(c_success)" "✅ Hidden service directory: $HIDDEN_SERVICE_DIR"
+    print_colored "$(c_success)" "✅ Local port: $TEST_SITE_PORT"
+    print_colored "$(c_success)" "✅ Website directory: $TEST_SITE_DIR"
     
     # Add to registry (initially with inactive status and no website directory)
     add_service_to_registry "$service_name" "$HIDDEN_SERVICE_DIR" "$TEST_SITE_PORT" "" "" "INACTIVE"
@@ -610,7 +627,7 @@ setup_dynamic_config() {
     sleep 2
 }
 
-# Function to display final results (updated to use registry)
+# Function to display final results (updated to use registry and dynamic colors)
 show_results() {
     clear
     print_header
@@ -619,7 +636,7 @@ show_results() {
     
     # Give one more chance to find the hostname file
     if [[ ! -f "$HIDDEN_SERVICE_DIR/hostname" ]]; then
-        print_colored "$BLUE" "🔍 Making final check for hostname file..."
+        print_colored "$(c_info)" "🔍 Making final check for hostname file..."
         sleep 5
     fi
     
@@ -636,58 +653,91 @@ show_results() {
             website_dir="$website"
         fi
         
-        print_colored "$GREEN" "🎉 Setup Complete!"
+        print_colored "$(c_success)" "🎉 Setup Complete!"
         echo
-        print_colored "$PURPLE" "╔══════════════════════════════════════════════════════════════════╗"
-        print_colored "$PURPLE" "║                        YOUR .ONION ADDRESS                       ║"
-        print_colored "$PURPLE" "╠══════════════════════════════════════════════════════════════════╣"
-        print_colored "$WHITE"  "║  $onion_address  ║"
-        print_colored "$PURPLE" "╚══════════════════════════════════════════════════════════════════╝"
+        print_colored "$(c_border)" "    ╔══════════════════════════════════════════════════════════════════╗"
+        print_colored "$(c_border)" "    ║$(echo -e "$(c_accent)                        YOUR .ONION ADDRESS                       $(c_border)")║"
+        print_colored "$(c_border)" "    ╠══════════════════════════════════════════════════════════════════╣"
+        print_colored "$(c_border)" "    ║$(echo -e "$(c_text)  $onion_address  $(c_border)")║"
+        print_colored "$(c_border)" "    ╚══════════════════════════════════════════════════════════════════╝"
         echo
-        print_colored "$CYAN"   "Your Tor Hidden Service Details:"
-        print_colored "$WHITE"  "════════════════════════════════════"
-        print_colored "$YELLOW" "🏷️ Service Name: $service_name"
-        print_colored "$YELLOW" "🌐 Onion Address: $onion_address"
-        print_colored "$YELLOW" "🔌 Local Port: $TEST_SITE_PORT"
-        print_colored "$YELLOW" "📁 Service Directory: $HIDDEN_SERVICE_DIR"
+        print_colored "$(c_highlight)"   "Your Tor Hidden Service Details:"
+        print_colored "$(c_text)"  "════════════════════════════════════"
+        print_colored "$(c_warning)" "🏷️ Service Name: $service_name"
+        print_colored "$(c_warning)" "🌐 Onion Address: $onion_address"
+        print_colored "$(c_warning)" "🔌 Local Port: $TEST_SITE_PORT"
+        print_colored "$(c_warning)" "📁 Service Directory: $HIDDEN_SERVICE_DIR"
+        print_colored "$(c_warning)" "🎨 Color Scheme: $COLOR_SCHEME"
         
         # Only show website directory if it was actually set up
         if [[ -n "$website_dir" ]] && [[ -d "$website_dir" ]]; then
-            print_colored "$YELLOW" "🌍 Website Directory: $website_dir"
+            print_colored "$(c_warning)" "🌍 Website Directory: $website_dir"
+            
+            # Show the local web address with proper binding detection and underline
+            if [[ -n "$TEST_SITE_PORT" ]]; then
+                local web_display_address
+                web_display_address=$(get_web_server_display_address "$TEST_SITE_PORT")
+                echo -e "$(c_warning)🔗 Local Web Address: $(c_highlight)${UNDERLINE}http://$web_display_address${RESET}"
+            fi
         fi
         
         echo
-        print_colored "$CYAN"  "To access your site:"
-        print_colored "$WHITE" "1. Open Tor Browser"
-        print_colored "$WHITE" "2. Navigate to: ${UNDERLINE}https://$onion_address${RESET}"
+        print_colored "$(c_highlight)"  "To access your site:"
+        print_colored "$(c_text)" "1. Open Tor Browser"
+        print_colored "$(c_text)" "2. Navigate to: http://$onion_address"
+        
+        # Show local access information if website exists
+        if [[ -n "$website_dir" ]] && [[ -d "$website_dir" ]] && [[ -n "$TEST_SITE_PORT" ]]; then
+            echo
+            print_colored "$(c_highlight)" "Local network access:"
+            local web_display_address
+            web_display_address=$(get_web_server_display_address "$TEST_SITE_PORT")
+            local binding_type
+            binding_type=$(get_web_server_binding "$TEST_SITE_PORT")
+            
+            case "$binding_type" in
+                "ALL_INTERFACES")
+                    echo -e "$(c_text)• Direct access: $(c_highlight)${UNDERLINE}http://$web_display_address${RESET}"
+                    print_colored "$(c_warning)" "  ⚠️  This bypasses Tor anonymity!"
+                    ;;
+                "LOCALHOST_ONLY")
+                    echo -e "$(c_text)• Localhost only: $(c_highlight)${UNDERLINE}http://$web_display_address${RESET}"
+                    print_colored "$(c_success)" "  ✅ Preserves anonymity (localhost only)"
+                    ;;
+                *)
+                    print_colored "$(c_text)" "• Server binding: $binding_type"
+                    ;;
+            esac
+        fi
+        
         echo
-        print_colored "$CYAN"  "To manage your services:"
-        print_colored "$WHITE" "• List all services: $0 --list"
+        print_colored "$(c_highlight)"  "To manage your services:"
+        print_colored "$(c_text)" "• List all services: $0 --list"
         
         # Only show test server command if website was set up
         if [[ -n "$website_dir" ]] && [[ -d "$website_dir" ]]; then
-            print_colored "$WHITE" "• Start test server: cd $website_dir && python3 server.py"
+            print_colored "$(c_text)" "• Start test server: cd $website_dir && python3 server.py"
         fi
         
-        print_colored "$WHITE" "• Tor config: $TORRC_FILE"
-        print_colored "$WHITE" "• Services registry: $SERVICES_FILE"
+        print_colored "$(c_text)" "• Tor config: $TORRC_FILE"
+        print_colored "$(c_text)" "• Services registry: $SERVICES_FILE"
         echo
-        print_colored "$PURPLE" "🔒 Remember: Your site is only accessible via Tor Browser!"
+        print_colored "$(c_accent)" "🔒 Remember: Your site is only accessible via Tor Browser!"
         echo
-        print_colored "$GREEN" "💡 TIP: Use '$0 --list' to see all your hidden services!"
+        print_colored "$(c_success)" "💡 TIP: Use '$0 --list' to see all your hidden services!"
     else
         update_service_in_registry "$service_name" "status" "ERROR"
-        print_colored "$RED" "❌ Setup completed but no .onion address found"
-        print_colored "$YELLOW" "📋 Troubleshooting Information:"
-        print_colored "$WHITE" "• Tor service status: $(systemctl is-active tor 2>/dev/null || echo 'unknown')"
-        print_colored "$WHITE" "• Hidden service dir: $HIDDEN_SERVICE_DIR"
-        print_colored "$WHITE" "• Torrc config file: $TORRC_FILE"
+        print_colored "$(c_error)" "❌ Setup completed but no .onion address found"
+        print_colored "$(c_warning)" "📋 Troubleshooting Information:"
+        print_colored "$(c_text)" "• Tor service status: $(systemctl is-active tor 2>/dev/null || echo 'unknown')"
+        print_colored "$(c_text)" "• Hidden service dir: $HIDDEN_SERVICE_DIR"
+        print_colored "$(c_text)" "• Torrc config file: $TORRC_FILE"
         echo
-        print_colored "$CYAN" "🔧 Manual troubleshooting steps:"
-        print_colored "$WHITE" "1. Check Tor logs: journalctl -u tor -f"
-        print_colored "$WHITE" "2. Verify config: sudo tor --verify-config"
-        print_colored "$WHITE" "3. Restart Tor: sudo systemctl restart tor"
-        print_colored "$WHITE" "4. Wait 30 seconds then check: sudo cat $HIDDEN_SERVICE_DIR/hostname"
-        print_colored "$WHITE" "5. Check permissions: sudo ls -la $HIDDEN_SERVICE_BASE_DIR"
+        print_colored "$(c_highlight)" "🔧 Manual troubleshooting steps:"
+        print_colored "$(c_text)" "1. Check Tor logs: journalctl -u tor -f"
+        print_colored "$(c_text)" "2. Verify config: sudo tor --verify-config"
+        print_colored "$(c_text)" "3. Restart Tor: sudo systemctl restart tor"
+        print_colored "$(c_text)" "4. Wait 30 seconds then check: sudo cat $HIDDEN_SERVICE_DIR/hostname"
+        print_colored "$(c_text)" "5. Check permissions: sudo ls -la $HIDDEN_SERVICE_BASE_DIR"
     fi
 }
