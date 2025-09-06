@@ -194,6 +194,8 @@ DISTRO=""
 PACKAGE_MANAGER=""
 INSTALL_CMD=""
 SERVICE_MANAGER=""
+INIT_SYSTEM=""
+SERVICE_CMD=""
 
 # Function to print verbose output
 verbose_log() {
@@ -212,7 +214,56 @@ print_colored() {
 # Function to generate random string
 generate_random_string() {
     local length=${1:-9}
-    tr -dc 'a-z0-9' < /dev/urandom | head -c "$length"
+    # Use multiple entropy sources for better randomness
+    if [[ -r /dev/urandom ]]; then
+        tr -dc 'a-z0-9' < /dev/urandom | head -c "$length"
+    elif [[ -r /dev/random ]]; then
+        tr -dc 'a-z0-9' < /dev/random | head -c "$length"
+    else
+        # Fallback to timestamp + random
+        local timestamp; timestamp=$(date +%s%N | tail -c 10)
+        local random_part; random_part=$(shuf -i 1000-9999 -n 1)
+        echo "${timestamp}${random_part}" | tr -dc 'a-z0-9' | head -c "$length"
+    fi
+}
+
+# Function to generate guaranteed unique service name
+generate_unique_service_name() {
+    local max_attempts=50
+    local attempt=0
+    
+    while [[ $attempt -lt $max_attempts ]]; do
+        local random_suffix; random_suffix=$(generate_random_string 9)
+        local candidate_name="hidden_service_$random_suffix"
+        
+        # Check registry file
+        if [[ -f "$SERVICES_FILE" ]] && grep -q "^$candidate_name|" "$SERVICES_FILE" 2>/dev/null; then
+            ((attempt++))
+            continue
+        fi
+        
+        # Check filesystem
+        if [[ -d "$HIDDEN_SERVICE_BASE_DIR/$candidate_name" ]]; then
+            ((attempt++))
+            continue
+        fi
+        
+        # Check if any existing torrc entries exist
+        if [[ -f "$TORRC_FILE" ]] && grep -q "$candidate_name" "$TORRC_FILE" 2>/dev/null; then
+            ((attempt++))
+            continue
+        fi
+        
+        echo "$candidate_name"
+        return 0
+    done
+
+    print_colored "$(c_error)" "❌ CRITICAL: Unable to generate unique service name after $max_attempts attempts"
+    print_colored "$(c_warning)" "This indicates either:"
+    print_colored "$(c_warning)" "  • Insufficient entropy source"
+    print_colored "$(c_warning)" "  • Corrupted services registry"
+    print_colored "$(c_warning)" "  • Filesystem issues"
+    return 1
 }
 
 # Function to check if running as root

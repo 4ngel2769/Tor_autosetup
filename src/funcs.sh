@@ -372,33 +372,93 @@ HiddenServicePort 80 0.0.0.0:$TEST_SITE_PORT
 EOF
     
     print_colored "$(c_success)" "✅ Tor configuration updated (broadcasting on all interfaces)"
+    
+    # Restart Tor to apply the new configuration
+    print_colored "$(c_process)" "🔄 Restarting Tor to apply configuration changes..."
+    verbose_log "Restarting Tor service to pick up torrc changes..."
+    
+    case "$INIT_SYSTEM" in
+        "systemd")
+            if systemctl restart tor; then
+                print_colored "$(c_success)" "✅ Tor service restarted successfully"
+                verbose_log "Tor restarted with systemctl"
+            else
+                print_colored "$(c_error)" "❌ Failed to restart Tor service"
+                update_service_in_registry "$service_name" "status" "ERROR"
+                return 1
+            fi
+            ;;
+        "sysv")
+            if service tor restart; then
+                print_colored "$(c_success)" "✅ Tor service restarted successfully"
+                verbose_log "Tor restarted with service command"
+            else
+                print_colored "$(c_error)" "❌ Failed to restart Tor service"
+                update_service_in_registry "$service_name" "status" "ERROR"
+                return 1
+            fi
+            ;;
+        *)
+            print_colored "$(c_warning)" "⚠️  Please manually restart Tor service to apply changes"
+            print_colored "$(c_secondary)" "Run: sudo systemctl restart tor"
+            sleep 3
+            ;;
+    esac
+    
+    # Give Tor a moment to start up before continuing
+    print_colored "$(c_process)" "⏳ Waiting for Tor to start up..."
+    sleep 3
+    
+    # Verify Tor is running
+    case "$INIT_SYSTEM" in
+        "systemd")
+            if systemctl is-active tor >/dev/null 2>&1; then
+                print_colored "$(c_success)" "✅ Tor is running and ready"
+                verbose_log "Tor service is active"
+            else
+                print_colored "$(c_error)" "❌ Tor failed to start properly"
+                update_service_in_registry "$service_name" "status" "ERROR"
+                return 1
+            fi
+            ;;
+        "sysv")
+            if pgrep -x tor >/dev/null; then
+                print_colored "$(c_success)" "✅ Tor is running and ready"
+                verbose_log "Tor process is running"
+            else
+                print_colored "$(c_error)" "❌ Tor failed to start properly"
+                update_service_in_registry "$service_name" "status" "ERROR"
+                return 1
+            fi
+            ;;
+    esac
+    
     sleep 2
 }
 
 # Function to start and enable Tor
 start_tor() {
-    print_colored "$(c_process)" "🚀 Starting Tor service..."
-    verbose_log "Service manager: $SERVICE_MANAGER"
+    print_colored "$(c_process)" "🔍 Checking Tor service status..."
+    verbose_log "Service manager: $INIT_SYSTEM"
 
     local service_name; service_name=$(basename "$HIDDEN_SERVICE_DIR")
 
-    case $SERVICE_MANAGER in
+    # Check if Tor is already running
+    case "$INIT_SYSTEM" in
         "systemd")
-            # Stop any existing tor service first
-            verbose_log "Stopping existing Tor service..."
-            systemctl stop tor 2>/dev/null || true
-            
-            # Start tor service
-            verbose_log "Starting Tor service with systemctl..."
-            if systemctl restart tor; then
-                print_colored "$(c_success)" "✅ Tor service started successfully"
-                verbose_log "Tor service started successfully"
-                sleep 1.5
+            if systemctl is-active tor >/dev/null 2>&1; then
+                print_colored "$(c_success)" "✅ Tor service is already running"
+                verbose_log "Tor service is already active"
             else
-                print_colored "$(c_error)" "❌ Failed to start Tor service"
-                update_service_in_registry "$service_name" "status" "ERROR"
-                sleep 2
-                return 1
+                print_colored "$(c_warning)" "⚠️  Tor service not running, starting..."
+                if systemctl start tor; then
+                    print_colored "$(c_success)" "✅ Tor service started successfully"
+                    verbose_log "Tor service started successfully"
+                else
+                    print_colored "$(c_error)" "❌ Failed to start Tor service"
+                    update_service_in_registry "$service_name" "status" "ERROR"
+                    return 1
+                fi
             fi
             
             if ask_yes_no "Do you want Tor to start automatically on system boot?"; then
@@ -417,16 +477,19 @@ start_tor() {
             ;;
         "sysv")
             verbose_log "Using SysV service manager..."
-            service tor stop 2>/dev/null || true
-            if service tor start; then
-                print_colored "$(c_success)" "✅ Tor service started successfully"
-                verbose_log "Tor service started with SysV"
-                sleep 1.5
+            if pgrep -x tor >/dev/null; then
+                print_colored "$(c_success)" "✅ Tor service is already running"
+                verbose_log "Tor process is already running"
             else
-                print_colored "$(c_error)" "❌ Failed to start Tor service"
-                update_service_in_registry "$service_name" "status" "ERROR"
-                sleep 2
-                return 1
+                print_colored "$(c_warning)" "⚠️  Tor service not running, starting..."
+                if service tor start; then
+                    print_colored "$(c_success)" "✅ Tor service started successfully"
+                    verbose_log "Tor service started with SysV"
+                else
+                    print_colored "$(c_error)" "❌ Failed to start Tor service"
+                    update_service_in_registry "$service_name" "status" "ERROR"
+                    return 1
+                fi
             fi
             print_colored "$(c_warning)" "⚠️  Auto-start configuration varies by system"
             sleep 2
@@ -440,7 +503,7 @@ start_tor() {
     
     # Check if hidden service directory was created
     local count=0
-    local max_wait=60  # 2 minutes total wait time
+    local max_wait=30  # Reduced from 60 to 30 since Tor should start faster after restart
     
     while [[ ! -f "$HIDDEN_SERVICE_DIR/hostname" ]] && [[ $count -lt $max_wait ]]; do
         sleep 2
@@ -450,13 +513,24 @@ start_tor() {
         verbose_log "Wait attempt $count/$max_wait - checking for hostname file..."
         
         # Check if Tor is still running
-        if ! pgrep -x tor >/dev/null; then
-            echo
-            print_colored "$(c_error)" "❌ Tor process died during startup"
-            update_service_in_registry "$service_name" "status" "ERROR"
-            sleep 2
-            return 1
-        fi
+        case "$INIT_SYSTEM" in
+            "systemd")
+                if ! systemctl is-active tor >/dev/null 2>&1; then
+                    echo
+                    print_colored "$(c_error)" "❌ Tor service stopped during hostname generation"
+                    update_service_in_registry "$service_name" "status" "ERROR"
+                    return 1
+                fi
+                ;;
+            "sysv")
+                if ! pgrep -x tor >/dev/null; then
+                    echo
+                    print_colored "$(c_error)" "❌ Tor process died during hostname generation"
+                    update_service_in_registry "$service_name" "status" "ERROR"
+                    return 1
+                fi
+                ;;
+        esac
     done
     echo
     
@@ -476,8 +550,12 @@ start_tor() {
         return 0
     else
         print_colored "$(c_error)" "❌ Failed to generate hidden service after ${max_wait} attempts"
+        print_colored "$(c_warning)" "📋 Troubleshooting suggestions:"
+        print_colored "$(c_text)" "• Check Tor logs: journalctl -u tor -n 20"
+        print_colored "$(c_text)" "• Verify torrc syntax: sudo tor --verify-config"
+        print_colored "$(c_text)" "• Check directory permissions: ls -la $HIDDEN_SERVICE_BASE_DIR"
         update_service_in_registry "$service_name" "status" "ERROR"
-        sleep 3
+        sleep 5
         return 1
     fi
 }
@@ -615,9 +693,16 @@ setup_dynamic_config() {
     # Initialize service tracking
     init_service_tracking
     
-    # Generate random service name
-    local random_suffix; random_suffix=$(generate_random_string 9)
-    local service_name="hidden_service_$random_suffix"
+    # Generate guaranteed unique service name
+    local service_name
+    service_name=$(generate_unique_service_name)
+    
+    if [[ -z "$service_name" ]]; then
+        print_colored "$(c_error)" "❌ Failed to generate unique service name"
+        exit 1
+    fi
+    
+    verbose_log "Generated unique service name: $service_name"
     
     # Set paths
     HIDDEN_SERVICE_DIR="$HIDDEN_SERVICE_BASE_DIR/$service_name"
@@ -641,7 +726,7 @@ setup_dynamic_config() {
     done
     TEST_SITE_PORT="$test_port"
     
-    # Set test site directory (but don't create it yet)
+    # Set test site directory
     TEST_SITE_DIR="$TEST_SITE_BASE_DIR/$service_name"
     
     verbose_log "Generated service configuration:"
@@ -700,9 +785,9 @@ show_results() {
         print_colored "$(c_text)"  "════════════════════════════════════"
         print_colored "$(c_warning)" "🏷️ Service Name: $service_name"
         print_colored "$(c_warning)" "🌐 Onion Address: $onion_address"
-        print_colored "$(c_warning)" "🔌 Local Port: $TEST_SITE_PORT"
         print_colored "$(c_warning)" "📁 Service Directory: $HIDDEN_SERVICE_DIR"
-        print_colored "$(c_warning)" "🎨 Color Scheme: $COLOR_SCHEME"
+        print_colored "$(c_warning)" "🔌 Local Port: $TEST_SITE_PORT"
+        # print_colored "$(c_warning)" "🎨 Color Scheme: $COLOR_SCHEME" # Not needed
         
         # Only show website directory if it was actually set up
         if [[ -n "$website_dir" ]] && [[ -d "$website_dir" ]]; then

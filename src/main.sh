@@ -522,6 +522,104 @@ remove_hidden_service() {
     return 0
 }
 
+# Function to get comprehensive web server status
+get_web_server_status() {
+    local service_name="$1"
+    local port="$2"
+    local website_dir="$3"
+    
+    # For non-script-managed services, check if port is active
+    if ! is_script_managed "$service_name"; then
+        if [[ -n "$port" ]]; then
+            check_web_server_status "$port"
+        else
+            echo "N/A"
+        fi
+        return
+    fi
+    
+    # For script-managed services, check system service first, then fallback to PID
+    if web_service_exists "$service_name"; then
+        local service_status=$(get_web_service_status "$service_name")
+        case "$service_status" in
+            "RUNNING")
+                # Double-check with actual port test
+                if [[ -n "$port" ]]; then
+                    local web_status=$(check_web_server_status "$port")
+                    if [[ "$web_status" == "RUNNING" ]]; then
+                        echo "RUNNING"
+                    else
+                        echo "SERVICE_UP_PORT_DOWN"
+                    fi
+                else
+                    echo "RUNNING"
+                fi
+                ;;
+            "STOPPED")
+                echo "STOPPED"
+                ;;
+            "NO_SERVICE")
+                # Fallback to PID-based checking
+                get_web_server_status_pid "$service_name" "$port" "$website_dir"
+                ;;
+            *)
+                echo "UNKNOWN"
+                ;;
+        esac
+    else
+        # Fallback to original PID-based method
+        get_web_server_status_pid "$service_name" "$port" "$website_dir"
+    fi
+}
+
+# Function to get web server status using PID method (fallback)
+get_web_server_status_pid() {
+    local service_name="$1"
+    local port="$2"
+    local website_dir="$3"
+    
+    local pid_file; pid_file=$(get_pid_file "$service_name")
+    local pid_status="UNKNOWN"
+    local web_status="UNKNOWN"
+    
+    # Check PID file
+    if [[ -f "$pid_file" ]]; then
+        local pid; pid=$(cat "$pid_file" 2>/dev/null)
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            pid_status="PID_ALIVE"
+        else
+            pid_status="PID_DEAD"
+            rm -f "$pid_file" 2>/dev/null
+        fi
+    else
+        pid_status="NO_PID"
+    fi
+    
+    # Check actual web server response
+    if [[ -n "$port" ]]; then
+        web_status=$(check_web_server_status "$port")
+    fi
+    
+    # Determine final status
+    case "$web_status" in
+        "RUNNING")
+            echo "RUNNING"
+            ;;
+        "NOT_LISTENING")
+            echo "STOPPED"
+            ;;
+        "NOT_RESPONDING")
+            if [[ "$pid_status" == "PID_ALIVE" ]]; then
+                echo "UNRESPONSIVE"
+            else
+                echo "STOPPED"
+            fi
+            ;;
+        *)
+            echo "UNKNOWN"
+            ;;
+    esac
+}
 # Parse command line arguments
 parse_args() {
     while [[ $# -gt 0 ]]; do

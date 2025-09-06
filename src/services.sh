@@ -299,7 +299,7 @@ get_web_server_status() {
     esac
 }
 
-# Function to start server with PID tracking
+# Function to start server with system service integration
 start_test_server() {
     print_colored "$(c_process)" "🚀 Starting test web server on port $TEST_SITE_PORT..."
 
@@ -316,7 +316,36 @@ start_test_server() {
         return 1
     fi
     
-    # Start server in background and save PID
+    # Ask user if they want to create a system service
+    if [[ "$INIT_SYSTEM" != "none" ]]; then
+        if ask_yes_no "Do you want to create a system service for easy management?"; then
+            create_web_service "$service_name" "$TEST_SITE_DIR" "$TEST_SITE_PORT"
+            
+            if ask_yes_no "Do you want to enable the service to start automatically?"; then
+                manage_web_service "enable" "$service_name"
+                print_colored "$(c_success)" "✅ Service enabled for automatic startup"
+            fi
+            
+            # Start the service
+            print_colored "$(c_process)" "🚀 Starting web service..."
+            if manage_web_service "start" "$service_name"; then
+                print_colored "$(c_success)" "✅ Web service started successfully"
+                print_colored "$(c_success)" "   📡 Port: $TEST_SITE_PORT"
+                print_colored "$(c_warning)" "   ⚠️  Accessible from local network (bypasses Tor anonymity)"
+                print_colored "$(c_secondary)" "   🔧 Manage with: systemctl {start|stop|restart|status} tor-web-${service_name}"
+                verbose_log "Web service created and started: tor-web-${service_name}"
+                sleep 3
+                return 0
+            else
+                print_colored "$(c_error)" "❌ Failed to start web service"
+                print_colored "$(c_warning)" "Falling back to manual startup..."
+            fi
+        else
+            print_colored "$(c_info)" "ℹ️  Creating manual web server (no system service)"
+        fi
+    fi
+    
+    # Fallback to manual startup (original method)
     cd "$TEST_SITE_DIR" || exit
     nohup python3 server.py > server.log 2>&1 &
     local server_pid=$!
@@ -330,7 +359,8 @@ start_test_server() {
         print_colored "$(c_success)" "✅ Test web server started successfully on all interfaces"
         print_colored "$(c_success)" "   📡 Port: $TEST_SITE_PORT (PID: $server_pid)"
         print_colored "$(c_warning)" "   ⚠️  Accessible from local network (bypasses Tor anonymity)"
-        verbose_log "Web server is running on port $TEST_SITE_PORT with PID $server_pid, bound to all interfaces"
+        print_colored "$(c_secondary)" "   🔧 Manage manually with PID file: $pid_file"
+        verbose_log "Web server is running on port $TEST_SITE_PORT with PID $server_pid (manual mode)"
         sleep 2
         return 0
     else
@@ -608,6 +638,497 @@ get_web_server_display_address() {
             ;;
         *)
             echo "unknown:$port"
+            ;;
+    esac
+}
+
+# Function to create system service for web server
+create_web_service() {
+    local service_name="$1"
+    local website_dir="$2"
+    local port="$3"
+    
+    print_colored "$(c_process)" "🔧 Creating system service for $service_name..."
+    
+    case "$INIT_SYSTEM" in
+        "systemd")
+            create_systemd_service "$service_name" "$website_dir" "$port"
+            ;;
+        "openrc")
+            create_openrc_service "$service_name" "$website_dir" "$port"
+            ;;
+        "runit")
+            create_runit_service "$service_name" "$website_dir" "$port"
+            ;;
+        "sysv")
+            create_sysv_service "$service_name" "$website_dir" "$port"
+            ;;
+        "s6")
+            create_s6_service "$service_name" "$website_dir" "$port"
+            ;;
+        "dinit")
+            create_dinit_service "$service_name" "$website_dir" "$port"
+            ;;
+        *)
+            print_colored "$(c_warning)" "⚠️  No supported init system - using manual PID management only"
+            return 1
+            ;;
+    esac
+}
+
+# Function to create systemd service
+create_systemd_service() {
+    local service_name="$1"
+    local website_dir="$2"
+    local port="$3"
+    
+    local service_file="/etc/systemd/system/tor-web-${service_name}.service"
+    
+    verbose_log "Creating systemd service file: $service_file"
+    
+    cat > "$service_file" << EOF
+[Unit]
+Description=Tor Hidden Service Web Server - $service_name
+After=network.target tor.service
+Wants=tor.service
+
+[Service]
+Type=simple
+User=debian-tor
+Group=debian-tor
+WorkingDirectory=$website_dir
+ExecStart=/usr/bin/python3 $website_dir/server.py
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+Environment=PORT=$port
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=$website_dir
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Reload systemd and enable service
+    systemctl daemon-reload
+    
+    print_colored "$(c_success)" "✅ Created systemd service: tor-web-${service_name}"
+    verbose_log "Systemd service created and daemon reloaded"
+}
+
+# Function to create OpenRC service
+create_openrc_service() {
+    local service_name="$1"
+    local website_dir="$2"
+    local port="$3"
+    
+    local service_file="/etc/init.d/tor-web-${service_name}"
+    
+    verbose_log "Creating OpenRC service file: $service_file"
+    
+    cat > "$service_file" << EOF
+#!/sbin/openrc-run
+
+name="Tor Web Server - $service_name"
+description="Tor Hidden Service Web Server for $service_name"
+
+command="/usr/bin/python3"
+command_args="$website_dir/server.py"
+command_background="yes"
+pidfile="/run/tor-web-${service_name}.pid"
+command_user="debian-tor:debian-tor"
+
+directory="$website_dir"
+
+depend() {
+    need net
+    after tor
+}
+
+start_pre() {
+    checkpath --directory --owner debian-tor:debian-tor --mode 0755 /run
+}
+EOF
+
+    chmod +x "$service_file"
+    
+    print_colored "$(c_success)" "✅ Created OpenRC service: tor-web-${service_name}"
+    verbose_log "OpenRC service created and made executable"
+}
+
+# Function to create runit service
+create_runit_service() {
+    local service_name="$1"
+    local website_dir="$2"
+    local port="$3"
+    
+    local service_dir="/etc/sv/tor-web-${service_name}"
+    
+    verbose_log "Creating runit service directory: $service_dir"
+    
+    mkdir -p "$service_dir"
+    
+    cat > "$service_dir/run" << EOF
+#!/bin/sh
+exec chpst -u debian-tor:debian-tor python3 $website_dir/server.py 2>&1
+EOF
+
+    cat > "$service_dir/log/run" << EOF
+#!/bin/sh
+exec svlogd -tt ./
+EOF
+
+    chmod +x "$service_dir/run"
+    mkdir -p "$service_dir/log"
+    chmod +x "$service_dir/log/run"
+    
+    print_colored "$(c_success)" "✅ Created runit service: tor-web-${service_name}"
+    verbose_log "Runit service created with logging"
+}
+
+# Function to create SysV service
+create_sysv_service() {
+    local service_name="$1"
+    local website_dir="$2"
+    local port="$3"
+    
+    local service_file="/etc/init.d/tor-web-${service_name}"
+    
+    verbose_log "Creating SysV init script: $service_file"
+    
+    cat > "$service_file" << EOF
+#!/bin/bash
+### BEGIN INIT INFO
+# Provides:          tor-web-${service_name}
+# Required-Start:    \$network \$remote_fs tor
+# Required-Stop:     \$network \$remote_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Tor Hidden Service Web Server - $service_name
+# Description:       Python web server for Tor hidden service $service_name
+### END INIT INFO
+
+NAME="tor-web-${service_name}"
+DAEMON="/usr/bin/python3"
+DAEMON_ARGS="$website_dir/server.py"
+PIDFILE="/var/run/\$NAME.pid"
+USER="debian-tor"
+WORKDIR="$website_dir"
+
+. /lib/lsb/init-functions
+
+case "\$1" in
+    start)
+        echo "Starting \$NAME"
+        start-stop-daemon --start --quiet --pidfile \$PIDFILE --make-pidfile --background --chuid \$USER --chdir \$WORKDIR --exec \$DAEMON -- \$DAEMON_ARGS
+        ;;
+    stop)
+        echo "Stopping \$NAME"
+        start-stop-daemon --stop --quiet --pidfile \$PIDFILE
+        rm -f \$PIDFILE
+        ;;
+    restart)
+        \$0 stop
+        sleep 1
+        \$0 start
+        ;;
+    status)
+        status_of_proc -p \$PIDFILE "\$DAEMON" "\$NAME" && exit 0 || exit \$?
+        ;;
+    *)
+        echo "Usage: \$0 {start|stop|restart|status}"
+        exit 1
+        ;;
+esac
+
+exit 0
+EOF
+
+    chmod +x "$service_file"
+    
+    # Try to add to runlevels
+    if command -v update-rc.d >/dev/null 2>&1; then
+        update-rc.d "tor-web-${service_name}" defaults
+    elif command -v chkconfig >/dev/null 2>&1; then
+        chkconfig --add "tor-web-${service_name}"
+    fi
+    
+    print_colored "$(c_success)" "✅ Created SysV service: tor-web-${service_name}"
+    verbose_log "SysV service created and added to runlevels"
+}
+
+# Function to create s6 service
+create_s6_service() {
+    local service_name="$1"
+    local website_dir="$2"
+    local port="$3"
+    
+    local service_dir="/etc/s6/sv/tor-web-${service_name}"
+    
+    verbose_log "Creating s6 service directory: $service_dir"
+    
+    mkdir -p "$service_dir"
+    
+    cat > "$service_dir/run" << EOF
+#!/bin/sh
+exec s6-setuidgid debian-tor python3 $website_dir/server.py
+EOF
+
+    chmod +x "$service_dir/run"
+    
+    print_colored "$(c_success)" "✅ Created s6 service: tor-web-${service_name}"
+    verbose_log "s6 service created"
+}
+
+# Function to create dinit service
+create_dinit_service() {
+    local service_name="$1"
+    local website_dir="$2"
+    local port="$3"
+    
+    local service_file="/etc/dinit.d/tor-web-${service_name}"
+    
+    verbose_log "Creating dinit service file: $service_file"
+    
+    cat > "$service_file" << EOF
+type = process
+command = /usr/bin/python3 $website_dir/server.py
+working-dir = $website_dir
+socket-listen = 127.0.0.1:$port
+depends-on = tor
+run-as = debian-tor
+EOF
+
+    print_colored "$(c_success)" "✅ Created dinit service: tor-web-${service_name}"
+    verbose_log "dinit service created"
+}
+
+# Function to manage web service (start/stop/enable/disable)
+manage_web_service() {
+    local action="$1"
+    local service_name="$2"
+    
+    local full_service_name="tor-web-${service_name}"
+    
+    verbose_log "Managing web service: $action $full_service_name"
+    
+    case "$INIT_SYSTEM" in
+        "systemd")
+            case "$action" in
+                "start") systemctl start "$full_service_name" ;;
+                "stop") systemctl stop "$full_service_name" ;;
+                "restart") systemctl restart "$full_service_name" ;;
+                "enable") systemctl enable "$full_service_name" ;;
+                "disable") systemctl disable "$full_service_name" ;;
+                "status") systemctl status "$full_service_name" ;;
+            esac
+            ;;
+        "openrc")
+            case "$action" in
+                "start") rc-service "$full_service_name" start ;;
+                "stop") rc-service "$full_service_name" stop ;;
+                "restart") rc-service "$full_service_name" restart ;;
+                "enable") rc-update add "$full_service_name" default ;;
+                "disable") rc-update del "$full_service_name" default ;;
+                "status") rc-service "$full_service_name" status ;;
+            esac
+            ;;
+        "runit")
+            case "$action" in
+                "start") sv start "$full_service_name" ;;
+                "stop") sv stop "$full_service_name" ;;
+                "restart") sv restart "$full_service_name" ;;
+                "enable") ln -sf "/etc/sv/$full_service_name" "/var/service/" ;;
+                "disable") rm -f "/var/service/$full_service_name" ;;
+                "status") sv status "$full_service_name" ;;
+            esac
+            ;;
+        "sysv")
+            case "$action" in
+                "start") service "$full_service_name" start ;;
+                "stop") service "$full_service_name" stop ;;
+                "restart") service "$full_service_name" restart ;;
+                "enable") 
+                    if command -v update-rc.d >/dev/null 2>&1; then
+                        update-rc.d "$full_service_name" enable
+                    elif command -v chkconfig >/dev/null 2>&1; then
+                        chkconfig "$full_service_name" on
+                    fi
+                    ;;
+                "disable")
+                    if command -v update-rc.d >/dev/null 2>&1; then
+                        update-rc.d "$full_service_name" disable
+                    elif command -v chkconfig >/dev/null 2>&1; then
+                        chkconfig "$full_service_name" off
+                    fi
+                    ;;
+                "status") service "$full_service_name" status ;;
+            esac
+            ;;
+        "s6")
+            case "$action" in
+                "start") s6-svc -u "/etc/s6/sv/$full_service_name" ;;
+                "stop") s6-svc -d "/etc/s6/sv/$full_service_name" ;;
+                "restart") s6-svc -r "/etc/s6/sv/$full_service_name" ;;
+                "status") s6-svstat "/etc/s6/sv/$full_service_name" ;;
+            esac
+            ;;
+        "dinit")
+            case "$action" in
+                "start") dinitctl start "$full_service_name" ;;
+                "stop") dinitctl stop "$full_service_name" ;;
+                "restart") dinitctl restart "$full_service_name" ;;
+                "enable") dinitctl enable "$full_service_name" ;;
+                "disable") dinitctl disable "$full_service_name" ;;
+                "status") dinitctl status "$full_service_name" ;;
+            esac
+            ;;
+        *)
+            print_colored "$(c_warning)" "⚠️  No supported init system - cannot manage service"
+            return 1
+            ;;
+    esac
+}
+
+# Function to remove web service
+remove_web_service() {
+    local service_name="$1"
+    local full_service_name="tor-web-${service_name}"
+    
+    verbose_log "Removing web service: $full_service_name"
+    
+    # Stop service first
+    manage_web_service "stop" "$service_name" 2>/dev/null || true
+    manage_web_service "disable" "$service_name" 2>/dev/null || true
+    
+    case "$INIT_SYSTEM" in
+        "systemd")
+            rm -f "/etc/systemd/system/${full_service_name}.service"
+            systemctl daemon-reload
+            ;;
+        "openrc")
+            rm -f "/etc/init.d/${full_service_name}"
+            ;;
+        "runit")
+            rm -rf "/etc/sv/${full_service_name}"
+            rm -f "/var/service/${full_service_name}"
+            ;;
+        "sysv")
+            rm -f "/etc/init.d/${full_service_name}"
+            if command -v update-rc.d >/dev/null 2>&1; then
+                update-rc.d "${full_service_name}" remove 2>/dev/null || true
+            elif command -v chkconfig >/dev/null 2>&1; then
+                chkconfig --del "${full_service_name}" 2>/dev/null || true
+            fi
+            ;;
+        "s6")
+            rm -rf "/etc/s6/sv/${full_service_name}"
+            ;;
+        "dinit")
+            rm -f "/etc/dinit.d/${full_service_name}"
+            ;;
+    esac
+    
+    print_colored "$(c_success)" "✅ Removed web service: $full_service_name"
+}
+
+# Function to check if web service exists
+web_service_exists() {
+    local service_name="$1"
+    local full_service_name="tor-web-${service_name}"
+    
+    case "$INIT_SYSTEM" in
+        "systemd")
+            [[ -f "/etc/systemd/system/${full_service_name}.service" ]]
+            ;;
+        "openrc")
+            [[ -f "/etc/init.d/${full_service_name}" ]]
+            ;;
+        "runit")
+            [[ -d "/etc/sv/${full_service_name}" ]]
+            ;;
+        "sysv")
+            [[ -f "/etc/init.d/${full_service_name}" ]]
+            ;;
+        "s6")
+            [[ -d "/etc/s6/sv/${full_service_name}" ]]
+            ;;
+        "dinit")
+            [[ -f "/etc/dinit.d/${full_service_name}" ]]
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# Function to get web service status
+get_web_service_status() {
+    local service_name="$1"
+    local full_service_name="tor-web-${service_name}"
+    
+    if ! web_service_exists "$service_name"; then
+        echo "NO_SERVICE"
+        return 1
+    fi
+    
+    case "$INIT_SYSTEM" in
+        "systemd")
+            if systemctl is-active "$full_service_name" >/dev/null 2>&1; then
+                echo "RUNNING"
+            else
+                echo "STOPPED"
+            fi
+            ;;
+        "openrc")
+            if rc-service "$full_service_name" status >/dev/null 2>&1; then
+                echo "RUNNING"
+            else
+                echo "STOPPED"
+            fi
+            ;;
+        "runit")
+            local status=$(sv status "$full_service_name" 2>/dev/null)
+            if echo "$status" | grep -q "run"; then
+                echo "RUNNING"
+            else
+                echo "STOPPED"
+            fi
+            ;;
+        "sysv")
+            if service "$full_service_name" status >/dev/null 2>&1; then
+                echo "RUNNING"
+            else
+                echo "STOPPED"
+            fi
+            ;;
+        "s6")
+            local status=$(s6-svstat "/etc/s6/sv/$full_service_name" 2>/dev/null)
+            if echo "$status" | grep -q "up"; then
+                echo "RUNNING"
+            else
+                echo "STOPPED"
+            fi
+            ;;
+        "dinit")
+            local status=$(dinitctl status "$full_service_name" 2>/dev/null)
+            if echo "$status" | grep -q "STARTED"; then
+                echo "RUNNING"
+            else
+                echo "STOPPED"
+            fi
+            ;;
+        *)
+            echo "UNKNOWN"
             ;;
     esac
 }
