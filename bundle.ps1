@@ -161,7 +161,33 @@ try {
     
     $allContent = @()
     
-    # Add header with self-chmod functionality and version info
+    function Read-EnvFile {
+        param([string]$Path = ".env")
+        $envVars = @{}
+        if (Test-Path $Path) {
+            $content = Get-Content $Path -Encoding UTF8
+            foreach ($line in $content) {
+                if ($line -match '^\s*#' -or $line -match '^\s*$') { continue }
+                if ($line -match '^([^=]+)=(.*)$') {
+                    $key = $matches[1].Trim()
+                    $value = $matches[2].Trim() -replace '^["'']|["'']$', ''
+                    $envVars[$key] = $value
+                }
+            }
+        }
+        return $envVars
+    }
+
+    # Load .env metadata
+    $envVars = Read-EnvFile
+    $scriptAuthor = $envVars['SCRIPT_AUTHOR']
+    $scriptRepo = $envVars['SCRIPT_REPO']
+    $scriptVersion = $envVars['SCRIPT_VERSION']
+    if (-not $scriptVersion) { $scriptVersion = "0.0.0" }
+    if (-not $scriptAuthor) { $scriptAuthor = "Unknown" }
+    if (-not $scriptRepo) { $scriptRepo = "Unknown" }
+    $buildDate = Get-Date -Format "yyyy.MM.dd"
+
     $allContent += "#!/bin/bash"
     $allContent += ""
     $allContent += "# ============================================================================="
@@ -174,9 +200,9 @@ try {
     $allContent += "# Bundle method: PowerShell bundler (Unix line endings)"
     $allContent += "# Minification: $(if ($Minify) { 'Yes' } else { 'No' })"
     $allContent += "#"
-    $allContent += "# Version: 2.1.0 (Build: 2025.09.06)"
-    $allContent += "# Author: 4ngel2769"
-    $allContent += "# Repository: https://github.com/4ngel2769/tor_autosetup"
+    $allContent += "# Version: $scriptVersion (Build: $buildDate)"
+    $allContent += "# Author: $scriptAuthor"
+    $allContent += "# Repository: $scriptRepo"
     $allContent += "# License: MIT"
     $allContent += "#"
     $allContent += "# This is a bundled version of the modular Tor setup script"
@@ -197,7 +223,7 @@ try {
     $allContent += "#   ./runme_tor.sh -Vl           # Verbose list"
     $allContent += "#   ./runme_tor.sh -rV service   # Verbose remove"
     $allContent += "#"
-    $allContent += "# For latest updates and source: https://github.com/4ngel2769/tor_autosetup"
+    $allContent += "# For latest updates and source: $scriptRepo"
     $allContent += ""
     $allContent += "# ============================================================================="
     $allContent += "# SELF-SETUP: Handle execution permissions and common issues"
