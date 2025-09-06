@@ -861,3 +861,9 @@ show_results() {
         print_colored "$(c_text)" "5. Check permissions: sudo ls -la $HIDDEN_SERVICE_BASE_DIR"
     fi
 }
+
+### 🍉 mwatermelon
+### "You wouldn't download a car..."
+###  - Motion Picture Association (2004)
+
+### End of src/funcs.sh

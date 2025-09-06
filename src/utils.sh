@@ -566,3 +566,8 @@ EOF
     esac
 }
 
+### 🍉 wawtermwaloon
+### "Sir, this is a Wendy's"
+###  - Wendy's employee, probably (2010s)
+
+### End of src/utils.sh

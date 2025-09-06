@@ -21,7 +21,7 @@
 #   .\bundle.ps1 [-Verbose] [-Minify] [-Output <filename>] [-Help]
 # 
 # Credits:
-#   Developed by Angel (GitHub: @4ngel2769)
+#   Developed by Angel (GitHub: 4ngel2769)
 #   Repository: https://github.com/4ngel2769/tor_autosetup
 #
 # ================================================================================
@@ -691,4 +691,10 @@ ls -la $FileName
     Write-VerboseLog "Stack trace: $($_.Exception.StackTrace)"
     exit 1
 }
-# End of bundle.ps1
+
+### 🍉 melwateron
+
+### "That man is playing 4D chess while we're playing checkers."
+###  - Neo, The Matrix (1999)
+
+### End of bundle.ps1

@@ -1279,3 +1279,9 @@ trap 'print_colored "$(c_error)" "Script interrupted"; exit 1' INT TERM
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi
+
+### 🍉 materwelmon
+### "Nobody expected the spanish inquisition"
+###  - Monty Python and the Holy Grail (1975)
+
+### End of src/main.sh
