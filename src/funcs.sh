@@ -126,8 +126,8 @@ show_menu() {
         done
         
         echo
-        print_colored "$(c_warning)" "Use ↑/↓ arrow keys to navigate, Enter to select"
-        
+        print_colored "$(c_muted)" "Use ↑/↓ arrow keys to navigate, Enter to select"
+
         read -rsn1 key
         case $key in
             $'\x1b')  # ESC sequence

@@ -463,8 +463,14 @@ remove_service_from_registry() {
         fi
     done < "$SERVICES_FILE" > "$temp_file"
     
-    mv "$temp_file" "$SERVICES_FILE"
-    verbose_log "Removed service $service_name from registry"
+    if mv "$temp_file" "$SERVICES_FILE"; then
+        verbose_log "Removed service $service_name from registry"
+        return 0
+    else
+        verbose_log "Failed to remove service $service_name from registry"
+        rm -f "$temp_file" 2>/dev/null
+        return 1
+    fi
 }
 
 # Function to remove hidden service from torrc
@@ -538,6 +544,8 @@ remove_service_directories() {
     
     verbose_log "Removing service directories and services..."
     
+    local overall_success=true
+    
     # Get service info from registry to check for system service
     local service_info
     service_info=$(grep "^$service_name|" "$SERVICES_FILE" 2>/dev/null)
@@ -557,12 +565,18 @@ remove_service_directories() {
     if [[ -n "$system_service" ]] && web_service_exists "$service_name"; then
         print_colored "$(c_process)" "🛑 Stopping and removing system service: $system_service"
         verbose_log "Found system service in registry: $system_service"
-        remove_web_service "$service_name"
+        if ! remove_web_service "$service_name"; then
+            print_colored "$(c_warning)" "⚠️  Could not remove system service (continuing anyway)"
+            overall_success=false
+        fi
     elif web_service_exists "$service_name"; then
         # Fallback: check if system service exists even if not tracked in registry
         print_colored "$(c_process)" "🛑 Stopping and removing detected system service..."
         verbose_log "System service exists but not tracked in registry, removing anyway"
-        remove_web_service "$service_name"
+        if ! remove_web_service "$service_name"; then
+            print_colored "$(c_warning)" "⚠️  Could not remove untracked system service (continuing anyway)"
+            overall_success=false
+        fi
     else
         verbose_log "No system service found for $service_name"
     fi
@@ -570,7 +584,9 @@ remove_service_directories() {
     # Stop any manual PID-based servers
     if is_script_managed "$service_name"; then
         print_colored "$(c_process)" "🛑 Stopping any manual web servers..."
-        stop_web_server "$service_name" 2>/dev/null || true
+        if ! stop_web_server "$service_name" 2>/dev/null; then
+            verbose_log "No manual web server to stop for $service_name"
+        fi
     fi
     
     # Remove hidden service directory
@@ -580,7 +596,7 @@ remove_service_directories() {
             print_colored "$(c_success)" "✅ Removed hidden service directory: $service_dir"
         else
             print_colored "$(c_error)" "❌ Failed to remove hidden service directory: $service_dir"
-            return 1
+            overall_success=false
         fi
     else
         print_colored "$(c_warning)" "⚠️  Hidden service directory not found: $service_dir"
@@ -610,6 +626,7 @@ remove_service_directories() {
                 removed_website=true
             else
                 print_colored "$(c_warning)" "⚠️  Failed to remove website directory: $website_path"
+                overall_success=false
             fi
         fi
     done
@@ -623,8 +640,19 @@ remove_service_directories() {
     local pid_file; pid_file=$(get_pid_file "$service_name")
     if [[ -f "$pid_file" ]]; then
         verbose_log "Removing PID file: $pid_file"
-        rm -f "$pid_file"
-        print_colored "$(c_success)" "✅ Removed PID file: $pid_file"
+        if rm -f "$pid_file"; then
+            print_colored "$(c_success)" "✅ Removed PID file: $pid_file"
+        else
+            print_colored "$(c_warning)" "⚠️  Could not remove PID file: $pid_file"
+            overall_success=false
+        fi
+    fi
+    
+    # Return success/failure
+    if [[ "$overall_success" == true ]]; then
+        return 0
+    else
+        return 1
     fi
 }
 

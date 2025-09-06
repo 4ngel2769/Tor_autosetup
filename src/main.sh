@@ -18,22 +18,38 @@ source "$SCRIPT_DIR/services.sh"
 
 # Function to show usage
 show_usage() {
-    echo "Usage: $0 [-V|--verbose] [-l|--list] [-t|--test] [-s|--stop SERVICE_NAME] [-r|--remove SERVICE_NAME] [-h|--help]"
-    echo "Options:"
-    echo "  -V, --verbose           Enable verbose output for debugging"
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "OPTIONS:"
+    echo "  -v, --verbose           Enable verbose output for debugging"
     echo "  -l, --list              List all available hidden services with status"
     echo "  -t, --test              Test all services (Tor + web server status)"
     echo "  -s, --stop SERVICE_NAME Stop web server for specific service"
-    echo "  -r, --remove SERVICE_NAME Remove hidden service PERMANENTLY"
+    echo "  -r, --remove SERVICE_NAME Remove hidden service(s) PERMANENTLY"
     echo "  -h, --help              Show this help message"
+    echo "  -A, --about             Show detailed information about this script"
+    echo "  -V, --version           Show version information"
     echo ""
-    echo "Examples:"
+    echo "EXAMPLES:"
     echo "  $0                                  # Create a new hidden service"
+    echo "  $0 --version                        # Show version information"
+    echo "  $0 --about                          # Show detailed about information"
     echo "  $0 --list                           # List all services with real-time status"
     echo "  $0 --test                           # Test all services comprehensively"
     echo "  $0 --stop hidden_service_abc123def  # Stop web server for specific service"
-    echo "  $0 --remove hidden_service_abc123def # PERMANENTLY remove hidden service"
-    echo "  $0 -V --list                        # Verbose listing with detailed info"
+    echo "  $0 --remove hidden_service_abc123def # PERMANENTLY remove single hidden service"
+    echo ""
+    echo "BULK REMOVAL:"
+    echo "  $0 -r 'service1,service2,service3'     # Remove multiple services (comma-separated)"
+    echo "  $0 -r 'service1 service2 service3'     # Remove multiple services (space-separated)"
+    echo "  $0 --remove 'service1, service2'       # Remove multiple services (mixed separators)"
+    echo ""
+    echo "COMBINED FLAGS:"
+    echo "  $0 -Vl                             # Verbose listing"
+    echo "  $0 -rV 'service1,service2'         # Verbose bulk removal"
+    echo "  $0 -Vt                             # Verbose testing"
+    echo ""
+    echo "For detailed information about this script, run: $0 --about"
     exit 0
 }
 
@@ -183,7 +199,7 @@ list_services() {
     print_colored "$(c_error)" "  - UNRESPONSIVE: Process exists but not responding"
     print_colored "$(c_error)" "  - NOT_LISTENING: Port not listening"
     print_colored "$(c_text)" "  - N/A: Not applicable (external service)"
-    print_colored "$(c_text)" "• ONION ADDRESS: .onion domain for Tor access (clickable)"
+    print_colored "$(c_text)" "• ONION ADDRESS: .onion domain for the hidden service"
     print_colored "$(c_text)" "• WEB ADDRESS: Local network address (when server is running)"
     echo -e "  - $(c_highlight)${UNDERLINE}Underlined links${RESET} show actual binding address"
     print_colored "$(c_info)" "  - 127.0.0.1:PORT for localhost-only servers"
@@ -636,50 +652,520 @@ get_web_server_status_pid() {
             ;;
     esac
 }
-# Parse command line arguments
+
+# Function to parse individual character flags (for combined flags like -Vl)
+parse_char_flag() {
+    local char="$1"
+    case "$char" in
+        'V')
+            VERBOSE=true
+            print_colored "$(c_success)" "✅ Verbose mode enabled"
+            ;;
+        'v')
+            show_version
+            exit 0
+            ;;
+        'l')
+            FLAG_LIST=true
+            ;;
+        't')
+            FLAG_TEST=true
+            ;;
+        's')
+            FLAG_STOP=true
+            ;;
+        'r')
+            FLAG_REMOVE=true
+            ;;
+        'h')
+            show_usage
+            ;;
+        *)
+            print_colored "$(c_error)" "❌ Unknown flag: -$char"
+            show_usage
+            ;;
+    esac
+}
+
+# Function to parse service names from a comma/space-separated string
+# Parse command line arguments with support for combined flags
+parse_service_names() {
+    local input="$1"
+    verbose_log "parse_service_names called with input: '$input'"
+    
+    # Remove quotes if present
+    input="${input%\"}"
+    input="${input#\"}"
+    verbose_log "After quote removal: '$input'"
+    
+    # Replace commas with spaces and normalize whitespace
+    input=$(echo "$input" | tr ',' ' ' | tr -s ' ')
+    verbose_log "After comma/space normalization: '$input'"
+    
+    # Split into array
+    local -a service_names=()
+    read -ra service_names <<< "$input"
+    verbose_log "Split into ${#service_names[@]} parts: ${service_names[*]}"
+    
+    # Remove empty elements and print valid service names
+    for service in "${service_names[@]}"; do
+        service=$(echo "$service" | xargs)  # Trim whitespace
+        verbose_log "Processing service part: '$service'"
+        if [[ -n "$service" ]]; then
+            verbose_log "Outputting valid service: '$service'"
+            echo "$service"
+        else
+            verbose_log "Skipping empty service part"
+        fi
+    done
+}
+
+# Function to validate service names exist in registry
+validate_service_names() {
+    local -a service_names=("$@")
+    local -a valid_services=()
+    local -a invalid_services=()
+    
+    for service_name in "${service_names[@]}"; do
+        if grep -q "^$service_name|" "$SERVICES_FILE" 2>/dev/null; then
+            valid_services+=("$service_name")
+        else
+            invalid_services+=("$service_name")
+        fi
+    done
+    
+    # Print results
+    if [[ ${#invalid_services[@]} -gt 0 ]]; then
+        print_colored "$(c_error)" "❌ Invalid service names found:" >&2
+        for invalid in "${invalid_services[@]}"; do
+            print_colored "$(c_text)" "  • $invalid" >&2
+        done
+        echo >&2
+    fi
+    
+    if [[ ${#valid_services[@]} -gt 0 ]]; then
+        print_colored "$(c_success)" "✅ Valid services to remove:" >&2
+        for valid in "${valid_services[@]}"; do
+            print_colored "$(c_text)" "  • $valid" >&2
+        done
+        echo >&2
+    fi
+    
+    # Return the valid services
+    printf '%s\n' "${valid_services[@]}"
+}
+
+
+# Function to show bulk removal preview
+preview_bulk_removal() {
+    local -a service_names=("$@")
+    local total_count=${#service_names[@]}
+    
+    print_colored "$(c_secondary)" "📋 Bulk Removal Preview ($total_count services):"
+    echo
+    
+    local total_dirs=0
+    local total_websites=0
+    local system_services_count=0
+    
+    for service_name in "${service_names[@]}"; do
+        verbose_log "Processing service for preview: $service_name"
+        
+        local service_info
+        service_info=$(grep "^$service_name|" "$SERVICES_FILE" 2>/dev/null)
+        
+        if [[ -n "$service_info" ]]; then
+            verbose_log "Found service info: $service_info"
+            
+            # Parse service info (handle both old and new formats)
+            local name dir port onion website status system_service created
+            IFS='|' read -r name dir port onion website status system_service created <<< "$service_info"
+            
+            # Handle old format (no system_service field)
+            if [[ -z "$created" ]] && [[ -n "$system_service" ]]; then
+                created="$system_service"
+                system_service=""
+            fi
+            
+            verbose_log "Parsed service: name=$name, dir=$dir, port=$port, website=$website"
+            
+            print_colored "$(c_primary)" "Service: $service_name"
+            print_colored "$(c_text)" "  • Onion: ${onion:-'<not generated>'}"
+            print_colored "$(c_text)" "  • Port: ${port:-'N/A'}"
+            
+            if [[ -n "$dir" ]]; then
+                print_colored "$(c_error)" "  • Will remove: $dir"
+                ((total_dirs++))
+            else
+                print_colored "$(c_warning)" "  • No directory found"
+            fi
+            
+            # Check for website directories
+            local website_paths_to_remove=()
+            if [[ -n "$website" ]] && [[ -d "$website" ]]; then
+                website_paths_to_remove+=("$website")
+                verbose_log "Found website directory from registry: $website"
+            fi
+            
+            # Also check constructed path for script-managed services
+            if is_script_managed "$service_name"; then
+                local constructed_website_dir="$TEST_SITE_BASE_DIR/$service_name"
+                verbose_log "Checking constructed website dir: $constructed_website_dir"
+                if [[ -d "$constructed_website_dir" ]] && [[ "$constructed_website_dir" != "$website" ]]; then
+                    website_paths_to_remove+=("$constructed_website_dir")
+                    verbose_log "Added constructed website directory: $constructed_website_dir"
+                fi
+            fi
+            
+            if [[ ${#website_paths_to_remove[@]} -gt 0 ]]; then
+                for website_path in "${website_paths_to_remove[@]}"; do
+                    print_colored "$(c_error)" "  • Will remove: $website_path"
+                    ((total_websites++))
+                done
+            fi
+            
+            # Check for system service
+            local has_system_service=false
+            if [[ -n "$system_service" ]]; then
+                verbose_log "Checking system service from registry: $system_service"
+                if web_service_exists "$service_name"; then
+                    print_colored "$(c_error)" "  • Will remove system service: $system_service"
+                    ((system_services_count++))
+                    has_system_service=true
+                fi
+            fi
+            
+            # Fallback check for system service if not tracked in registry
+            if [[ "$has_system_service" == false ]] && web_service_exists "$service_name"; then
+                print_colored "$(c_error)" "  • Will remove system service: tor-web-${service_name}"
+                ((system_services_count++))
+                verbose_log "Found untracked system service: tor-web-${service_name}"
+            fi
+            
+            echo
+        else
+            print_colored "$(c_error)" "Service: $service_name (NOT FOUND IN REGISTRY)"
+            print_colored "$(c_warning)" "  • This service will be skipped"
+            echo
+        fi
+    done
+    
+    print_colored "$(c_secondary)" "📊 Bulk Removal Summary:"
+    print_colored "$(c_text)" "• Services to remove: $total_count"
+    print_colored "$(c_text)" "• Hidden service directories: $total_dirs"
+    print_colored "$(c_text)" "• Website directories: $total_websites"
+    print_colored "$(c_text)" "• System services: $system_services_count"
+    echo
+    
+    print_colored "$(c_error)" "⚠️  ALL .onion addresses will be LOST FOREVER!"
+    print_colored "$(c_error)" "⚠️  ALL website files will be DELETED!"
+    print_colored "$(c_error)" "⚠️  THIS ACTION CANNOT BE UNDONE!"
+}
+
+# Function to remove multiple hidden services
+remove_hidden_services_bulk() {
+    local service_names_input="$1"
+    
+    verbose_log "remove_hidden_services_bulk called with: '$service_names_input'"
+    
+    if [[ -z "$service_names_input" ]]; then
+        print_colored "$(c_error)" "❌ No service names provided"
+        print_colored "$(c_warning)" "Usage examples:"
+        print_colored "$(c_text)" "  $0 -r 'service1,service2,service3'"
+        print_colored "$(c_text)" "  $0 -r 'service1 service2 service3'"
+        print_colored "$(c_text)" "  $0 --remove 'service1, service2, service3'"
+        return 1
+    fi
+    
+    verbose_log "Parsing service names from: $service_names_input"
+    
+    # Parse service names
+    local -a parsed_services=()
+    while IFS= read -r service_name; do
+        if [[ -n "$service_name" ]]; then
+            parsed_services+=("$service_name")
+            verbose_log "Parsed service name: '$service_name'"
+        fi
+    done < <(parse_service_names "$service_names_input")
+    
+    verbose_log "Total parsed services: ${#parsed_services[@]}"
+    
+    if [[ ${#parsed_services[@]} -eq 0 ]]; then
+        print_colored "$(c_error)" "❌ No valid service names found in input"
+        print_colored "$(c_secondary)" "Input was: '$service_names_input'"
+        return 1
+    fi
+    
+    verbose_log "Parsed ${#parsed_services[@]} service names: ${parsed_services[*]}"
+    
+    # Check if it's actually a single service (fallback to original function)
+    if [[ ${#parsed_services[@]} -eq 1 ]]; then
+        verbose_log "Single service detected, using original removal function"
+        remove_hidden_service "${parsed_services[0]}"
+        return $?
+    fi
+    
+    print_colored "$(c_info)" "🔍 Validating service names..."
+    
+    # Validate service names
+    local -a valid_services=()
+    while IFS= read -r service_name; do
+        if [[ -n "$service_name" ]]; then
+            valid_services+=("$service_name")
+            verbose_log "Valid service: '$service_name'"
+        fi
+    done < <(validate_service_names "${parsed_services[@]}")
+    
+    verbose_log "Total valid services: ${#valid_services[@]}"
+    
+    if [[ ${#valid_services[@]} -eq 0 ]]; then
+        print_colored "$(c_error)" "❌ No valid services found to remove"
+        print_colored "$(c_secondary)" "Available services:"
+        if [[ -f "$SERVICES_FILE" ]]; then
+            while IFS='|' read -r name dir port onion website status created; do
+                [[ "$name" =~ ^#.*$ ]] || [[ -z "$name" ]] && continue
+                print_colored "$(c_text)" "  • $name"
+            done < "$SERVICES_FILE"
+        else
+            print_colored "$(c_warning)" "  No services found"
+        fi
+        return 1
+    fi
+    
+    # Show bulk removal preview
+    verbose_log "Showing bulk removal preview for ${#valid_services[@]} services"
+    clear
+    print_header
+    print_colored "$(c_error)" "⚠️  DANGER: BULK REMOVAL WARNING ⚠️"
+    echo
+    
+    # Call preview function with error handling
+    if ! preview_bulk_removal "${valid_services[@]}"; then
+        print_colored "$(c_error)" "❌ Failed to generate removal preview"
+        verbose_log "preview_bulk_removal function failed"
+        return 1
+    fi
+    
+    # Multiple confirmation prompts
+    echo
+    print_colored "$(c_warning)" "📖 Please review the above information carefully..."
+    print_colored "$(c_secondary)" "Press any key when ready to continue..."
+    read -n 1 -s
+    echo
+    
+    if ! ask_yes_no "Are you ABSOLUTELY SURE you want to remove ${#valid_services[@]} hidden services?"; then
+        print_colored "$(c_success)" "✅ Bulk removal cancelled - all services preserved"
+        return 0
+    fi
+    
+    if ! ask_yes_no "This will PERMANENTLY DELETE ${#valid_services[@]} .onion addresses. Continue?"; then
+        print_colored "$(c_success)" "✅ Bulk removal cancelled - all services preserved"
+        return 0
+    fi
+    
+    if ! ask_yes_no "FINAL WARNING: Remove ${#valid_services[@]} hidden services forever?"; then
+        print_colored "$(c_success)" "✅ Bulk removal cancelled - all services preserved"
+        return 0
+    fi
+    
+    # Start bulk removal process
+    print_colored "$(c_process)" "🗑️ Starting bulk removal process..."
+    echo
+    
+    local removed_count=0
+    local failed_count=0
+    local -a failed_services=()
+    
+    # IMPORTANT: Remove set -e temporarily to prevent script exit on individual service failures
+    set +e
+    
+    for service_name in "${valid_services[@]}"; do
+        local current_num=$((removed_count + failed_count + 1))
+        print_colored "$(c_secondary)" "[$current_num/${#valid_services[@]}] Processing: $service_name"
+        
+        verbose_log "Processing removal for service: $service_name"
+        
+        # Get service details from registry
+        local service_info
+        service_info=$(grep "^$service_name|" "$SERVICES_FILE" 2>/dev/null)
+        
+        if [[ -n "$service_info" ]]; then
+            local name dir port onion website status system_service created
+            IFS='|' read -r name dir port onion website status system_service created <<< "$service_info"
+            
+            # Handle old format (no system_service field)
+            if [[ -z "$created" ]] && [[ -n "$system_service" ]]; then
+                created="$system_service"
+                system_service=""
+            fi
+            
+            verbose_log "Removing service: $service_name (dir: $dir, website: $website)"
+            
+            # Track success of individual operations
+            local operations_success=true
+            
+            # Stop web server if it's running
+            if is_script_managed "$service_name"; then
+                print_colored "$(c_process)" "  🛑 Stopping web server..."
+                if ! stop_web_server "$service_name" 2>/dev/null; then
+                    verbose_log "Warning: Could not stop web server for $service_name (not critical)"
+                fi
+            fi
+            
+            # Remove from torrc (not critical if it fails)
+            print_colored "$(c_process)" "  📝 Removing from torrc..."
+            if ! remove_from_torrc "$dir" "$service_name"; then
+                verbose_log "Warning: Could not remove from torrc for $service_name (not critical)"
+            fi
+            
+            # Remove directories and services (this is the critical operation)
+            print_colored "$(c_process)" "  🗂️ Removing directories..."
+            if remove_service_directories "$dir" "$website" "$service_name"; then
+                # Remove from registry
+                print_colored "$(c_process)" "  📋 Removing from registry..."
+                if remove_service_from_registry "$service_name"; then
+                    print_colored "$(c_success)" "  ✅ Successfully removed: $service_name"
+                    ((removed_count++))
+                else
+                    print_colored "$(c_error)" "  ❌ Failed to remove from registry: $service_name"
+                    failed_services+=("$service_name")
+                    ((failed_count++))
+                fi
+            else
+                print_colored "$(c_error)" "  ❌ Failed to remove directories: $service_name"
+                failed_services+=("$service_name")
+                ((failed_count++))
+            fi
+        else
+            print_colored "$(c_error)" "  ❌ Service info not found: $service_name"
+            failed_services+=("$service_name")
+            ((failed_count++))
+        fi
+        
+        echo
+    done
+    
+    # Re-enable set -e
+    set -e
+    
+    # Restart Tor once after all removals
+    if [[ $removed_count -gt 0 ]]; then
+        print_colored "$(c_process)" "🔄 Restarting Tor service to apply all changes..."
+        if systemctl restart tor 2>/dev/null; then
+            print_colored "$(c_success)" "✅ Tor service restarted successfully"
+        else
+            print_colored "$(c_warning)" "⚠️  Please manually restart Tor service: sudo systemctl restart tor"
+        fi
+    fi
+    
+    # Show final summary
+    echo
+    print_colored "$(c_secondary)" "📊 Bulk Removal Summary:"
+    print_colored "$(c_success)" "• Successfully removed: $removed_count services"
+    
+    if [[ $failed_count -gt 0 ]]; then
+        print_colored "$(c_error)" "• Failed to remove: $failed_count services"
+        print_colored "$(c_warning)" "Failed services:"
+        for failed_service in "${failed_services[@]}"; do
+            print_colored "$(c_text)" "  • $failed_service"
+        done
+    fi
+    
+    if [[ $removed_count -gt 0 ]]; then
+        print_colored "$(c_warning)" "💡 ${removed_count} .onion addresses are now permanently inaccessible"
+    fi
+    
+    return 0
+}
+
+# Updated parse_args function to handle bulk removal
 parse_args() {
+    # Initialize flags
+    local FLAG_LIST=false
+    local FLAG_TEST=false
+    local FLAG_STOP=false
+    local FLAG_REMOVE=false
+    local SERVICE_NAME=""
+    
     while [[ $# -gt 0 ]]; do
         case $1 in
-            -V|--verbose)
+            -v|--verbose)
                 VERBOSE=true
                 print_colored "$(c_success)" "✅ Verbose mode enabled"
                 shift
                 ;;
-            -l|--list)
-                init_service_tracking
-                list_services
+            -V|--version)
+                show_version
                 exit 0
                 ;;
+            -A|--about)
+                show_about
+                exit 0
+                ;;
+            -l|--list)
+                FLAG_LIST=true
+                shift
+                ;;
             -t|--test)
-                print_colored "$(c_process)" "🔧 Initializing service tracking..."
-                init_service_tracking
-                test_all_services
-                exit $?
+                FLAG_TEST=true
+                shift
                 ;;
             -s|--stop)
+                FLAG_STOP=true
                 if [[ -z "${2:-}" ]]; then
                     print_colored "$(c_error)" "❌ Service name required for --stop option"
                     print_colored "$(c_warning)" "Usage: $0 --stop SERVICE_NAME"
                     show_usage
                 fi
-                init_service_tracking
-                stop_service_web_server "$2"
-                exit $?
+                SERVICE_NAME="$2"
+                shift 2
                 ;;
             -r|--remove)
+                FLAG_REMOVE=true
                 if [[ -z "${2:-}" ]]; then
-                    print_colored "$(c_error)" "❌ Service name required for --remove option"
+                    print_colored "$(c_error)" "❌ Service name(s) required for --remove option"
                     print_colored "$(c_warning)" "Usage: $0 --remove SERVICE_NAME"
+                    print_colored "$(c_warning)" "   or: $0 --remove 'service1,service2,service3'"
                     init_service_tracking
-                    remove_hidden_service ""
+                    remove_hidden_services_bulk ""
                     exit 1
                 fi
-                init_service_tracking
-                remove_hidden_service "$2"
-                exit $?
+                SERVICE_NAME="$2"
+                shift 2
                 ;;
             -h|--help)
                 show_usage
+                ;;
+            # Combined short form arguments (like -Vl, -rV, etc.)
+            -*)
+                local flag_string="${1#-}"  # Remove the leading dash
+                local i=0
+                
+                # Parse each character in the flag string
+                while [[ $i -lt ${#flag_string} ]]; do
+                    local char="${flag_string:$i:1}"
+                    parse_char_flag "$char"
+                    ((i++))
+                done
+                
+                # Check if we need a service name for -s or -r flags
+                if [[ "$flag_string" == *"s"* ]] || [[ "$flag_string" == *"r"* ]]; then
+                    if [[ -z "${2:-}" ]]; then
+                        if [[ "$flag_string" == *"s"* ]]; then
+                            print_colored "$(c_error)" "❌ Service name required for -s flag"
+                            print_colored "$(c_warning)" "Usage: $0 -s SERVICE_NAME or $0 -Vs SERVICE_NAME"
+                        else
+                            print_colored "$(c_error)" "❌ Service name(s) required for -r flag"
+                            print_colored "$(c_warning)" "Usage: $0 -r SERVICE_NAME or $0 -Vr SERVICE_NAME"
+                            print_colored "$(c_warning)" "   or: $0 -r 'service1,service2,service3'"
+                        fi
+                        show_usage
+                    fi
+                    SERVICE_NAME="$2"
+                    shift 2
+                else
+                    shift
+                fi
                 ;;
             *)
                 print_colored "$(c_error)" "❌ Unknown option: $1"
@@ -687,6 +1173,33 @@ parse_args() {
                 ;;
         esac
     done
+    
+    # Execute the appropriate action based on flags
+    if [[ "$FLAG_LIST" == true ]]; then
+        init_service_tracking
+        list_services
+        exit 0
+    elif [[ "$FLAG_TEST" == true ]]; then
+        print_colored "$(c_process)" "🔧 Initializing service tracking..."
+        init_service_tracking
+        test_all_services
+        exit $?
+    elif [[ "$FLAG_STOP" == true ]]; then
+        init_service_tracking
+        stop_service_web_server "$SERVICE_NAME"
+        exit $?
+    elif [[ "$FLAG_REMOVE" == true ]]; then
+        init_service_tracking
+        # Check if SERVICE_NAME contains multiple services (commas or multiple words)
+        if [[ "$SERVICE_NAME" == *","* ]] || [[ "$SERVICE_NAME" == *" "* ]]; then
+            verbose_log "Detected multiple services in input: $SERVICE_NAME"
+            remove_hidden_services_bulk "$SERVICE_NAME"
+        else
+            verbose_log "Single service detected: $SERVICE_NAME"
+            remove_hidden_service "$SERVICE_NAME"
+        fi
+        exit $?
+    fi
 }
 
 # Main installation flow
@@ -732,9 +1245,7 @@ main() {
     fi
     
     # Ask about test website
-    # local setup_website=false
     if ask_yes_no "Do you want to set up a test website? (requires Python3)"; then
-        # setup_website=true
         verbose_log "Setting up test website..."
         install_web_dependencies
         create_test_website

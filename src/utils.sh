@@ -10,6 +10,46 @@
 # Change this value to switch color schemes throughout the entire script
 # Valid options: "STANDARD", "HTB", "PASTEL"
 COLOR_SCHEME="PASTEL"
+# Global flags
+VERBOSE=false
+
+# ================================================================================
+# SCRIPT METADATA
+# ================================================================================
+SCRIPT_NAME="Tor Hidden Service Setup Script"
+SCRIPT_VERSION="0.3.0"
+SCRIPT_BUILD="2025.09.06"
+SCRIPT_AUTHOR="4ngel2769"
+SCRIPT_REPO="https://github.com/4ngel2769/tor_autosetup"
+SCRIPT_LICENSE="MIT"
+SCRIPT_DESCRIPTION="Automated deployment and management of Tor hidden services with system integration"
+# ================================================================================
+
+# Text styles
+UNDERLINE="\033[4m"
+BOLD="\033[1m"
+RESET="\033[0m"
+
+# Configuration
+TORRC_FILE="/etc/tor/torrc"
+HIDDEN_SERVICE_BASE_DIR="/var/lib/tor"
+HIDDEN_SERVICE_DIR=""  # Will be set dynamically
+TEST_SITE_BASE_PORT=5000
+TEST_SITE_PORT=""  # Will be set dynamically
+TEST_SITE_BASE_DIR="/var/www/tor-test"
+TEST_SITE_DIR=""  # Will be set dynamically
+
+# Service tracking
+SERVICES_FILE="$HOME/.torstp/.services_available"
+TORSTP_DIR="$HOME/.torstp"
+
+# Global variables
+DISTRO=""
+PACKAGE_MANAGER=""
+INSTALL_CMD=""
+SERVICE_MANAGER=""
+INIT_SYSTEM=""
+SERVICE_CMD=""
 
 # Color resets
 WHITE='\033[1;37m'
@@ -150,7 +190,7 @@ get_color() {
     esac
 }
 
-# Convenience functions for common colors
+# Convenient functions for common colors
 c_primary() { get_color "PRIMARY"; }
 c_secondary() { get_color "SECONDARY"; }
 c_accent() { get_color "ACCENT"; }
@@ -167,35 +207,108 @@ c_process() { get_color "PROCESS"; }
 c_matrix() { get_color "MATRIX"; }
 c_bright() { get_color "BRIGHT"; }
 c_blurple() { get_color "BLURPLE"; }
+c_white() { echo "$WHITE"; }
 
-# Text styles
-UNDERLINE="\033[4m"
-BOLD="\033[1m"
-RESET="\033[0m"
 
-# Global flags
-VERBOSE=false
+# Function to show version information
+show_version() {
+    print_colored "$(c_primary)" "$SCRIPT_NAME"
+    echo -e "$(c_text)Version: $(c_info)$SCRIPT_VERSION$(c_text) (Build: $SCRIPT_BUILD)"
+    print_colored "$(c_text)" "Author: $SCRIPT_AUTHOR"
+    print_colored "$(c_text)" "Repository: $SCRIPT_REPO"
+    print_colored "$(c_text)" "License: $SCRIPT_LICENSE"
+    echo
+    print_colored "$(c_secondary)" "Features:"
+    print_colored "$(c_text)" "• Automated Tor hidden service deployment"
+    print_colored "$(c_text)" "• System service integration (systemd, OpenRC, runit, SysV, s6, dinit)"
+    print_colored "$(c_text)" "• Multi-distribution support (Debian, Ubuntu, RHEL, Fedora, Arch, SUSE)"
+    print_colored "$(c_text)" "• Dynamic color schemes (STANDARD, HTB, PASTEL)"
+    print_colored "$(c_text)" "• Comprehensive service management and monitoring"
+    print_colored "$(c_text)" "• Built-in test website with responsive design"
+}
 
-# Configuration
-TORRC_FILE="/etc/tor/torrc"
-HIDDEN_SERVICE_BASE_DIR="/var/lib/tor"
-HIDDEN_SERVICE_DIR=""  # Will be set dynamically
-TEST_SITE_BASE_PORT=5000
-TEST_SITE_PORT=""  # Will be set dynamically
-TEST_SITE_BASE_DIR="/var/www/tor-test"
-TEST_SITE_DIR=""  # Will be set dynamically
-
-# Service tracking
-SERVICES_FILE="$HOME/.torstp/.services_available"
-TORSTP_DIR="$HOME/.torstp"
-
-# Global variables
-DISTRO=""
-PACKAGE_MANAGER=""
-INSTALL_CMD=""
-SERVICE_MANAGER=""
-INIT_SYSTEM=""
-SERVICE_CMD=""
+# Function to show detailed about information
+show_about() {
+    clear
+    print_header
+    
+    print_colored "$(c_accent)" "📖 About $SCRIPT_NAME"
+    echo
+    
+    print_colored "$(c_highlight)" "🎯 Purpose:"
+    print_colored "$(c_text)" "This script automates the creation and management of Tor hidden services"
+    print_colored "$(c_text)" "on Linux systems. It provides a user-friendly interface for setting up"
+    print_colored "$(c_text)" ".onion websites with proper security configurations and system integration."
+    echo
+    
+    print_colored "$(c_highlight)" "⚡ Key Features:"
+    print_colored "$(c_success)" "• 🚀 One-command setup of Tor hidden services"
+    print_colored "$(c_success)" "• 🔧 Automatic system service creation and management"
+    print_colored "$(c_success)" "• 🎨 Multiple color schemes for enhanced user experience"
+    print_colored "$(c_success)" "• 📊 Real-time service monitoring and status checking"
+    print_colored "$(c_success)" "• 🌐 Built-in test website with responsive design"
+    print_colored "$(c_success)" "• 🛡️ Security-focused default configurations"
+    print_colored "$(c_success)" "• 🔄 Comprehensive cleanup and removal tools"
+    print_colored "$(c_success)" "• 📋 Service registry for tracking multiple hidden services"
+    echo
+    
+    print_colored "$(c_highlight)" "🏗️ System Integration:"
+    print_colored "$(c_info)" "• Init Systems: systemd, OpenRC, runit, SysV, s6, dinit"
+    print_colored "$(c_info)" "• Distributions: Debian, Ubuntu, RHEL, Fedora, CentOS, Arch, SUSE"
+    print_colored "$(c_info)" "• Package Managers: apt, yum, dnf, pacman, zypper"
+    print_colored "$(c_info)" "• Python Integration: Built-in web server with port management"
+    echo
+    
+    print_colored "$(c_highlight)" "🔐 Security Features:"
+    print_colored "$(c_warning)" "• Configurable network binding (localhost-only vs all interfaces)"
+    print_colored "$(c_warning)" "• Automatic torrc backup and validation"
+    print_colored "$(c_warning)" "• Service isolation with proper user permissions"
+    print_colored "$(c_warning)" "• Comprehensive removal with secure cleanup"
+    print_colored "$(c_warning)" "• Network analysis tools for binding detection"
+    echo
+    
+    print_colored "$(c_highlight)" "📚 Usage Examples:"
+    print_colored "$(c_text)" "  $0                                    # Create new hidden service"
+    print_colored "$(c_text)" "  $0 --list --verbose                   # List services with details"
+    print_colored "$(c_text)" "  $0 --test                             # Test all services"
+    print_colored "$(c_text)" "  $0 --remove hidden_service_abc123     # Remove specific service"
+    print_colored "$(c_text)" "  $0 --stop hidden_service_abc123       # Stop web server"
+    echo
+    
+    print_colored "$(c_highlight)" "🎨 Color Schemes:"
+    print_colored "$(c_primary)" "• STANDARD: Classic terminal colors"
+    print_colored "$(c_accent)" "• HTB: Hack The Box inspired (cyberpunk aesthetic)"
+    print_colored "$(c_special)" "• PASTEL: Soft, easy-on-the-eyes colors"
+    print_colored "$(c_muted)" "  (Configure in utils.sh: COLOR_SCHEME variable)"
+    echo
+    
+    print_colored "$(c_highlight)" "🔧 Technical Details:"
+    print_colored "$(c_text)" "• Language: Bash (compatible with bash 4.0+)"
+    print_colored "$(c_text)" "• Dependencies: tor, python3, curl, ss/netstat"
+    print_colored "$(c_text)" "• Configuration: /etc/tor/torrc"
+    print_colored "$(c_text)" "• Hidden Services: /var/lib/tor/"
+    print_colored "$(c_text)" "• Website Directory: /var/www/tor-test/"
+    print_colored "$(c_text)" "• Registry: ~/.torstp/.services_available"
+    echo
+    
+    print_colored "$(c_highlight)" "👨‍💻 Development:"
+    print_colored "$(c_text)" "Version: $SCRIPT_VERSION (Build: $SCRIPT_BUILD)"
+    print_colored "$(c_text)" "Author: $SCRIPT_AUTHOR"
+    print_colored "$(c_text)" "Repository: $SCRIPT_REPO"
+    print_colored "$(c_text)" "License: $SCRIPT_LICENSE"
+    print_colored "$(c_text)" "Issues/Feedback: $SCRIPT_REPO/issues"
+    echo
+    
+    print_colored "$(c_accent)" "⚠️  Important Security Notes:"
+    print_colored "$(c_error)" "• This script is for educational and legitimate purposes only"
+    print_colored "$(c_error)" "• Always follow local laws and regulations regarding Tor usage"
+    print_colored "$(c_error)" "• Default configuration binds to all interfaces (0.0.0.0)"
+    print_colored "$(c_error)" "• Local network access bypasses Tor anonymity protections"
+    print_colored "$(c_error)" "• Regularly update Tor and monitor security advisories"
+    echo
+    
+    print_colored "$(c_success)" "🚀 Ready to get started? Run: $0 --help for usage options"
+}
 
 # Function to print verbose output
 verbose_log() {
@@ -309,10 +422,10 @@ print_header() {
     symbols=$(get_header_symbols)
     case "$COLOR_SCHEME" in
         "HTB")
-            print_colored "$(c_border)" "    ║$(echo -e "$(c_matrix)      $symbols        $(c_border)")║"
+            print_colored "$(c_border)" "    ║$(echo -e "$(c_matrix)          $symbols           $(c_border)")║"
             ;;
         "PASTEL")
-            print_colored "$(c_border)" "    ║$(echo -e "$(c_accent)         $(c_highlight)☁ ANONYMITY $(c_special)☁ SECURITY $(c_primary)☁ PRIVACY ☁        $(c_border)")║"
+            print_colored "$(c_border)" "    ║$(echo -e "$(c_accent)           $(c_highlight)🕵️‍♂️ ANONYMITY $(c_special)🔒 SECURITY $(c_primary)🛡️ PRIVACY ☁               $(c_border)")║"
             ;;
         *)
             print_colored "$(c_border)" "    ║$(echo -e "$(c_accent)         $symbols        $(c_border)")║"

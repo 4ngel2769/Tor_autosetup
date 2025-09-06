@@ -1,6 +1,10 @@
-torsetup.m.sh
-torstp-bundled.sh
-test.sh
+# Ignore compiled files
+.dist/
 
+# Ignore all test and run files
 test*
+run*
+
+# Ignore common directories and environment files
 .class/
+.env
