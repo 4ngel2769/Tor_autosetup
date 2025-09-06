@@ -40,7 +40,7 @@ EOF
     else
         # Check if header exists, if not add it
         if ! grep -q "^# Tor Hidden Services Registry" "$SERVICES_FILE" 2>/dev/null; then
-            local temp_file=$(mktemp)
+            local temp_file; temp_file=$(mktemp)
             cat > "$temp_file" << 'EOF'
 # Tor Hidden Services Registry
 # Format: SERVICE_NAME|DIRECTORY|PORT|ONION_ADDRESS|WEBSITE_DIR|STATUS|CREATED_DATE
@@ -64,8 +64,8 @@ scan_existing_services() {
         verbose_log "No torrc file found"
         return 0
     fi
-    
-    local temp_file=$(mktemp)
+
+    local temp_file; temp_file=$(mktemp)
     local current_dir=""
     local current_port=""
     
@@ -78,7 +78,7 @@ scan_existing_services() {
             current_port="${BASH_REMATCH[1]}"
             
             # Extract service name from directory
-            local service_name=$(basename "$current_dir")
+            local service_name; service_name=$(basename "$current_dir")
             local onion_address=""
             local status="INACTIVE"
             
@@ -92,7 +92,7 @@ scan_existing_services() {
             
             # Check if service already exists in registry
             if ! grep -q "^$service_name|" "$SERVICES_FILE" 2>/dev/null; then
-                local created_date=$(date '+%Y-%m-%d %H:%M:%S')
+                local created_date; created_date=$(date '+%Y-%m-%d %H:%M:%S')
                 local website_dir=""
                 # Only set website_dir for script-managed services
                 if is_script_managed "$service_name"; then
@@ -124,8 +124,8 @@ add_service_to_registry() {
     local onion_address="$4"
     local website_dir="$5"
     local status="$6"
-    local created_date=$(date '+%Y-%m-%d %H:%M:%S')
-    
+    local created_date; created_date=$(date '+%Y-%m-%d %H:%M:%S')
+
     echo "$service_name|$directory|$port|$onion_address|$website_dir|$status|$created_date" >> "$SERVICES_FILE"
     verbose_log "Added service to registry: $service_name"
 }
@@ -135,9 +135,9 @@ update_service_in_registry() {
     local service_name="$1"
     local field="$2"
     local value="$3"
-    
-    local temp_file=$(mktemp)
-    
+
+    local temp_file; temp_file=$(mktemp)
+
     while IFS='|' read -r name dir port onion website status created; do
         if [[ "$name" == "$service_name" ]]; then
             case "$field" in
@@ -162,8 +162,8 @@ sync_registry_status() {
         verbose_log "No services file found, skipping sync"
         return 0
     fi
-    
-    local temp_file=$(mktemp)
+
+    local temp_file; temp_file=$(mktemp)
     local updated=false
     
     # Read the services file line by line
@@ -256,13 +256,13 @@ get_web_server_status() {
     fi
     
     # For script-managed services, check both PID and actual response
-    local pid_file=$(get_pid_file "$service_name")
+    local pid_file; pid_file=$(get_pid_file "$service_name")
     local pid_status="UNKNOWN"
     local web_status="UNKNOWN"
     
     # Check PID file
     if [[ -f "$pid_file" ]]; then
-        local pid=$(cat "$pid_file" 2>/dev/null)
+        local pid; pid=$(cat "$pid_file" 2>/dev/null)
         if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
             pid_status="PID_ALIVE"
         else
@@ -302,10 +302,10 @@ get_web_server_status() {
 # Function to start server with PID tracking
 start_test_server() {
     print_colored "$(c_process)" "🚀 Starting test web server on port $TEST_SITE_PORT..."
-    
-    local service_name=$(basename "$HIDDEN_SERVICE_DIR")
-    local pid_file=$(get_pid_file "$service_name")
-    
+
+    local service_name; service_name=$(basename "$HIDDEN_SERVICE_DIR")
+    local pid_file; pid_file=$(get_pid_file "$service_name")
+
     # Double-check if port is available
     if ss -tlpn | grep -q ":$TEST_SITE_PORT "; then
         print_colored "$(c_warning)" "⚠️  Port $TEST_SITE_PORT became unavailable"
@@ -348,15 +348,15 @@ start_test_server() {
 # Function to stop web server for a specific service
 stop_web_server() {
     local service_name="$1"
-    local pid_file=$(get_pid_file "$service_name")
-    
+    local pid_file; pid_file=$(get_pid_file "$service_name")
+
     if [[ ! -f "$pid_file" ]]; then
         print_colored "$(c_warning)" "⚠️  No PID file found for service: $service_name"
         return 1
     fi
-    
-    local pid=$(cat "$pid_file")
-    
+
+    local pid; pid=$(cat "$pid_file")
+
     if [[ -z "$pid" ]]; then
         print_colored "$(c_warning)" "⚠️  Invalid PID in file for service: $service_name"
         rm -f "$pid_file"
@@ -382,8 +382,8 @@ stop_web_server() {
 # Function to remove service from registry
 remove_service_from_registry() {
     local service_name="$1"
-    local temp_file=$(mktemp)
-    
+    local temp_file; temp_file=$(mktemp)
+
     # Copy all lines except the one we want to remove
     while IFS='|' read -r name dir port onion website status created; do
         if [[ "$name" != "$service_name" ]]; then
@@ -407,8 +407,8 @@ remove_from_torrc() {
         cp "$TORRC_FILE" "$TORRC_FILE.backup.$(date +%s)"
         verbose_log "Created backup of torrc"
     fi
-    
-    local temp_file=$(mktemp)
+
+    local temp_file; temp_file=$(mktemp)
     local in_service_block=false
     local service_removed=false
     
@@ -513,7 +513,7 @@ remove_service_directories() {
     fi
     
     # Remove PID file if it exists
-    local pid_file=$(get_pid_file "$service_name")
+    local pid_file; pid_file=$(get_pid_file "$service_name")
     if [[ -f "$pid_file" ]]; then
         verbose_log "Removing PID file: $pid_file"
         rm -f "$pid_file"

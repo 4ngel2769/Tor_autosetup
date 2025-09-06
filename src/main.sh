@@ -239,8 +239,8 @@ test_all_services() {
     
     # Test each service - using a temp file approach
     verbose_log "Beginning service testing loop..."
-    
-    local temp_services=$(mktemp)
+
+    local temp_services; temp_services=$(mktemp)
     # First, extract just the service lines to a temp file
     while IFS='|' read -r name dir port onion website status created; do
         # Skip comments and empty lines
@@ -278,9 +278,8 @@ test_all_services() {
         if [[ -n "$port" ]]; then
             print_colored "$(c_info)" "  🌐 Testing web server on port $port..."
             verbose_log "Calling check_web_server_status for port $port"
-            
-            local web_status
-            web_status=$(check_web_server_status "$port")
+
+            local web_status=$(check_web_server_status "$port")
             verbose_log "Web status result: $web_status"
             
             case "$web_status" in
@@ -471,6 +470,11 @@ remove_hidden_service() {
     print_colored "$(c_error)" "⚠️  All website files will be DELETED! ⚠️"
     echo
     
+    # Give user time to read the information before showing the first prompt
+    print_colored "$(c_warning)" "📖 Please review the above information carefully..."
+    print_colored "$(c_secondary)" "Press any key when ready to continue..."
+    read -n 1 -s
+    
     # Multiple confirmation prompts
     if ! ask_yes_no "Are you ABSOLUTELY SURE you want to remove this hidden service?"; then
         print_colored "$(c_success)" "✅ Removal cancelled - service preserved"
@@ -614,20 +618,20 @@ main() {
     fi
     
     # Ask about test website
-    local setup_website=false
+    # local setup_website=false
     if ask_yes_no "Do you want to set up a test website? (requires Python3)"; then
-        setup_website=true
+        # setup_website=true
         verbose_log "Setting up test website..."
         install_web_dependencies
         create_test_website
         start_test_server
         
         # Update registry with website directory
-        local service_name=$(basename "$HIDDEN_SERVICE_DIR")
+        local service_name; service_name=$(basename "$HIDDEN_SERVICE_DIR")
         update_service_in_registry "$service_name" "website_dir" "$TEST_SITE_DIR"
     else
         # Update registry to remove website directory since user declined
-        local service_name=$(basename "$HIDDEN_SERVICE_DIR")
+        local service_name; service_name=$(basename "$HIDDEN_SERVICE_DIR")
         update_service_in_registry "$service_name" "website_dir" ""
         verbose_log "User declined test website setup"
         sleep 1

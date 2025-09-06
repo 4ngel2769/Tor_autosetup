@@ -6,6 +6,51 @@ source "$(dirname "${BASH_SOURCE[0]}")/utils.sh"
 # funcs.sh - Reusable helper functions
 # This file contains system detection, package management, and UI functions
 
+# Function to detect init system
+detect_init_system() {
+    verbose_log "Detecting init system..."
+    
+    # Check for systemd first (most common)
+    if [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1; then
+        INIT_SYSTEM="systemd"
+        SERVICE_CMD="systemctl"
+        verbose_log "Detected systemd init system"
+    # Check for OpenRC
+    elif [[ -d /run/openrc ]] && command -v rc-service >/dev/null 2>&1; then
+        INIT_SYSTEM="openrc"
+        SERVICE_CMD="rc-service"
+        verbose_log "Detected OpenRC init system"
+    # Check for runit
+    elif [[ -d /etc/runit ]] && command -v sv >/dev/null 2>&1; then
+        INIT_SYSTEM="runit"
+        SERVICE_CMD="sv"
+        verbose_log "Detected runit init system"
+    # Check for SysV init
+    elif [[ -d /etc/init.d ]] && command -v service >/dev/null 2>&1; then
+        INIT_SYSTEM="sysv"
+        SERVICE_CMD="service"
+        verbose_log "Detected SysV init system"
+    # Check for s6
+    elif [[ -d /run/s6 ]] && command -v s6-svc >/dev/null 2>&1; then
+        INIT_SYSTEM="s6"
+        SERVICE_CMD="s6-svc"
+        verbose_log "Detected s6 init system"
+    # Check for dinit
+    elif [[ -S /run/dinitctl ]] && command -v dinitctl >/dev/null 2>&1; then
+        INIT_SYSTEM="dinit"
+        SERVICE_CMD="dinitctl"
+        verbose_log "Detected dinit init system"
+    # Fallback to none
+    else
+        INIT_SYSTEM="none"
+        SERVICE_CMD=""
+        verbose_log "No supported init system detected"
+        print_colored "$(c_warning)" "⚠️  Warning: No supported init system detected. Services will use manual PID management."
+    fi
+    
+    verbose_log "Init system: $INIT_SYSTEM, Service command: $SERVICE_CMD"
+}
+
 # Function to detect distribution and package manager
 detect_system() {
     print_colored "$(c_info)" "🔍 Detecting system distribution..."
@@ -51,21 +96,10 @@ detect_system() {
         exit 1
     fi
     
-    # Detect service manager
-    verbose_log "Checking service manager..."
-    if command -v systemctl >/dev/null 2>&1; then
-        SERVICE_MANAGER="systemd"
-        verbose_log "Found systemd service manager"
-    elif command -v service >/dev/null 2>&1; then
-        SERVICE_MANAGER="sysv"
-        verbose_log "Found SysV service manager"
-    else
-        print_colored "$(c_warning)" "⚠️  Warning: No supported service manager found"
-        SERVICE_MANAGER="none"
-        verbose_log "No supported service manager found"
-    fi
+    # Detect init system
+    detect_init_system
     
-    print_colored "$(c_success)" "✅ Detected: $DISTRO ($PACKAGE_MANAGER) with $SERVICE_MANAGER"
+    print_colored "$(c_success)" "✅ Detected: $DISTRO ($PACKAGE_MANAGER) with $INIT_SYSTEM"
     verbose_log "System detection complete"
     sleep 2
 }
@@ -301,9 +335,9 @@ install_web_dependencies() {
 # Function to configure Tor hidden service
 configure_tor() {
     print_colored "$(c_process)" "⚙️  Configuring Tor hidden service..."
-    
-    local service_name=$(basename "$HIDDEN_SERVICE_DIR")
-    
+
+    local service_name; service_name=$(basename "$HIDDEN_SERVICE_DIR")
+
     # Variables for logging before adding to torrc
     local hs_dir_log="$HIDDEN_SERVICE_DIR"
     local hs_port_log="$TEST_SITE_PORT"
@@ -345,9 +379,9 @@ EOF
 start_tor() {
     print_colored "$(c_process)" "🚀 Starting Tor service..."
     verbose_log "Service manager: $SERVICE_MANAGER"
-    
-    local service_name=$(basename "$HIDDEN_SERVICE_DIR")
-    
+
+    local service_name; service_name=$(basename "$HIDDEN_SERVICE_DIR")
+
     case $SERVICE_MANAGER in
         "systemd")
             # Stop any existing tor service first
@@ -582,7 +616,7 @@ setup_dynamic_config() {
     init_service_tracking
     
     # Generate random service name
-    local random_suffix=$(generate_random_string 9)
+    local random_suffix; random_suffix=$(generate_random_string 9)
     local service_name="hidden_service_$random_suffix"
     
     # Set paths
@@ -598,7 +632,7 @@ setup_dynamic_config() {
     fi
     
     local test_port="$TEST_SITE_BASE_PORT"
-    while ss -tlpn 2>/dev/null | grep -q ":$test_port " || [[ " ${existing_ports[*]} " =~ " $test_port " ]]; do
+    while ss -tlpn 2>/dev/null | grep -q ":$test_port " || [[ " ${existing_ports[*]} " =~ $test_port ]]; do
         ((test_port++))
         if [[ $test_port -gt 65535 ]]; then
             print_colored "$(c_error)" "❌ No available ports found"
@@ -631,9 +665,9 @@ setup_dynamic_config() {
 show_results() {
     clear
     print_header
-    
-    local service_name=$(basename "$HIDDEN_SERVICE_DIR")
-    
+
+    local service_name; service_name=$(basename "$HIDDEN_SERVICE_DIR")
+
     # Give one more chance to find the hostname file
     if [[ ! -f "$HIDDEN_SERVICE_DIR/hostname" ]]; then
         print_colored "$(c_info)" "🔍 Making final check for hostname file..."
@@ -649,8 +683,9 @@ show_results() {
         service_info=$(grep "^$service_name|" "$SERVICES_FILE" 2>/dev/null)
         local website_dir=""
         if [[ -n "$service_info" ]]; then
-            IFS='|' read -r name dir port onion website status created <<< "$service_info"
-            website_dir="$website"
+            # IFS='|' read -r name dir port onion website status created <<< "$service_info"
+            IFS='|' read -r _ _ _ _ website_dir _ _ <<< "$service_info"
+            website_dir="$website_dir"
         fi
         
         print_colored "$(c_success)" "🎉 Setup Complete!"
