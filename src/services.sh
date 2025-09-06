@@ -33,22 +33,41 @@ init_service_tracking() {
     if [[ ! -f "$SERVICES_FILE" ]]; then
         cat > "$SERVICES_FILE" << 'EOF'
 # Tor Hidden Services Registry
-# Format: SERVICE_NAME|DIRECTORY|PORT|ONION_ADDRESS|WEBSITE_DIR|STATUS|CREATED_DATE
+# Format: SERVICE_NAME|DIRECTORY|PORT|ONION_ADDRESS|WEBSITE_DIR|STATUS|SYSTEM_SERVICE|CREATED_DATE
 # Status: ACTIVE, INACTIVE, ERROR
+# System_Service: service_name (if managed by init system), empty if manual/none
 EOF
-        verbose_log "Created services registry file: $SERVICES_FILE"
+        verbose_log "Created services registry file with new format: $SERVICES_FILE"
     else
-        # Check if header exists, if not add it
-        if ! grep -q "^# Tor Hidden Services Registry" "$SERVICES_FILE" 2>/dev/null; then
+        # Check if header exists and update format if needed
+        if ! grep -q "SYSTEM_SERVICE" "$SERVICES_FILE" 2>/dev/null; then
+            verbose_log "Upgrading services registry to new format..."
+            
+            # Create backup
+            cp "$SERVICES_FILE" "$SERVICES_FILE.backup.$(date +%s)"
+            
+            # Convert old format to new format
             local temp_file; temp_file=$(mktemp)
             cat > "$temp_file" << 'EOF'
 # Tor Hidden Services Registry
-# Format: SERVICE_NAME|DIRECTORY|PORT|ONION_ADDRESS|WEBSITE_DIR|STATUS|CREATED_DATE
+# Format: SERVICE_NAME|DIRECTORY|PORT|ONION_ADDRESS|WEBSITE_DIR|STATUS|SYSTEM_SERVICE|CREATED_DATE
 # Status: ACTIVE, INACTIVE, ERROR
+# System_Service: service_name (if managed by init system), empty if manual/none
 EOF
-            cat "$SERVICES_FILE" >> "$temp_file"
+            
+            # Convert existing entries to new format
+            while IFS='|' read -r name dir port onion website status created; do
+                # Skip comments and empty lines
+                if [[ "$name" =~ ^#.*$ ]] || [[ -z "$name" ]]; then
+                    continue
+                fi
+                
+                # Add empty system_service field for existing entries
+                echo "$name|$dir|$port|$onion|$website|$status||$created" >> "$temp_file"
+            done < "$SERVICES_FILE"
+            
             mv "$temp_file" "$SERVICES_FILE"
-            verbose_log "Added header to existing services registry file"
+            verbose_log "Registry format upgraded successfully"
         fi
     fi
     
@@ -74,7 +93,7 @@ scan_existing_services() {
         if [[ "$line" =~ ^HiddenServiceDir[[:space:]]+(.+)$ ]]; then
             current_dir="${BASH_REMATCH[1]}"
             current_dir="${current_dir%/}"  # Remove trailing slash
-        elif [[ "$line" =~ ^HiddenServicePort[[:space:]]+[0-9]+[[:space:]]+127\.0\.0\.1:([0-9]+)$ ]] && [[ -n "$current_dir" ]]; then
+        elif [[ "$line" =~ ^HiddenServicePort[[:space:]]+[0-9]+[[:space:]]+0\.0\.0\.0:([0-9]+)$ ]] && [[ -n "$current_dir" ]]; then
             current_port="${BASH_REMATCH[1]}"
             
             # Extract service name from directory
@@ -94,12 +113,20 @@ scan_existing_services() {
             if ! grep -q "^$service_name|" "$SERVICES_FILE" 2>/dev/null; then
                 local created_date; created_date=$(date '+%Y-%m-%d %H:%M:%S')
                 local website_dir=""
+                local system_service=""
+                
                 # Only set website_dir for script-managed services
                 if is_script_managed "$service_name"; then
                     website_dir="$TEST_SITE_BASE_DIR/$service_name"
+                    
+                    # Check if system service exists
+                    if web_service_exists "$service_name"; then
+                        system_service="tor-web-${service_name}"
+                    fi
                 fi
-                echo "$service_name|$current_dir|$current_port|$onion_address|$website_dir|$status|$created_date" >> "$temp_file"
-                verbose_log "Found existing service: $service_name ($current_dir:$current_port) [Managed: $(is_script_managed "$service_name" && echo "YES" || echo "NO")]"
+                
+                echo "$service_name|$current_dir|$current_port|$onion_address|$website_dir|$status|$system_service|$created_date" >> "$temp_file"
+                verbose_log "Found existing service: $service_name ($current_dir:$current_port) [Managed: $(is_script_managed "$service_name" && echo "YES" || echo "NO")] [System Service: ${system_service:-'none'}]"
             fi
             
             current_dir=""
@@ -118,16 +145,17 @@ scan_existing_services() {
 
 # Function to add service to registry
 add_service_to_registry() {
-    local service_name="$1"
-    local directory="$2"
-    local port="$3"
-    local onion_address="$4"
-    local website_dir="$5"
-    local status="$6"
+    local service_name="$1"                 # Service name          | hidden_service_a1b2c3d4e
+    local directory="$2"                    # Service directory     | /var/lib/tor/hidden_service_a1b2c3d4e
+    local port="$3"                         # Port number           | 5001
+    local onion_address="$4"                # Onion address         | abcdehiddenservicea1b2c3d4e...xyz.onion
+    local website_dir="$5"                  # Website directory     | /var/www/hidden_service_a1b2c3d4e
+    local status="$6"                       # Status                | ACTIVE / INACTIVE / ERROR
+    local system_service="${7:-}"           # Optional service name | tor-web-hidden_service_a1b2c3d4e or empty if none
     local created_date; created_date=$(date '+%Y-%m-%d %H:%M:%S')
 
-    echo "$service_name|$directory|$port|$onion_address|$website_dir|$status|$created_date" >> "$SERVICES_FILE"
-    verbose_log "Added service to registry: $service_name"
+    echo "$service_name|$directory|$port|$onion_address|$website_dir|$status|$system_service|$created_date" >> "$SERVICES_FILE"
+    verbose_log "Added service to registry: $service_name (system_service: ${system_service:-'none'})"
 }
 
 # Function to update service in registry
@@ -138,16 +166,17 @@ update_service_in_registry() {
 
     local temp_file; temp_file=$(mktemp)
 
-    while IFS='|' read -r name dir port onion website status created; do
+    while IFS='|' read -r name dir port onion website status system_service created; do
         if [[ "$name" == "$service_name" ]]; then
             case "$field" in
                 "onion_address") onion="$value" ;;
                 "status") status="$value" ;;
                 "website_dir") website="$value" ;;
                 "port") port="$value" ;;
+                "system_service") system_service="$value" ;;
             esac
         fi
-        echo "$name|$dir|$port|$onion|$website|$status|$created"
+        echo "$name|$dir|$port|$onion|$website|$status|$system_service|$created"
     done < "$SERVICES_FILE" > "$temp_file"
     
     mv "$temp_file" "$SERVICES_FILE"
@@ -166,12 +195,19 @@ sync_registry_status() {
     local temp_file; temp_file=$(mktemp)
     local updated=false
     
-    # Read the services file line by line
-    while IFS='|' read -r name dir port onion website status created || [[ -n "$name" ]]; do
+    # Read the services file line by line (handle both old and new formats)
+    while IFS='|' read -r name dir port onion website status system_service created || [[ -n "$name" ]]; do
         # Skip comments and empty lines
         if [[ "$name" =~ ^#.*$ ]] || [[ -z "$name" ]]; then
-            echo "$name|$dir|$port|$onion|$website|$status|$created" >> "$temp_file"
+            echo "$name|$dir|$port|$onion|$website|$status|$system_service|$created" >> "$temp_file"
             continue
+        fi
+        
+        # Handle old format (no system_service field)
+        if [[ -z "$created" ]] && [[ -n "$system_service" ]]; then
+            # Old format: name|dir|port|onion|website|status|created
+            created="$system_service"
+            system_service=""
         fi
         
         verbose_log "Processing service: $name"
@@ -202,7 +238,7 @@ sync_registry_status() {
             fi
         fi
         
-        echo "$name|$dir|$port|$new_onion|$website|$new_status|$created" >> "$temp_file"
+        echo "$name|$dir|$port|$new_onion|$website|$new_status|$system_service|$created" >> "$temp_file"
         
     done < "$SERVICES_FILE"
     
@@ -321,6 +357,10 @@ start_test_server() {
         if ask_yes_no "Do you want to create a system service for easy management?"; then
             create_web_service "$service_name" "$TEST_SITE_DIR" "$TEST_SITE_PORT"
             
+            local system_service_name="tor-web-${service_name}"
+            update_service_in_registry "$service_name" "system_service" "$system_service_name"
+            verbose_log "Updated registry with system service: $system_service_name"
+            
             if ask_yes_no "Do you want to enable the service to start automatically?"; then
                 manage_web_service "enable" "$service_name"
                 print_colored "$(c_success)" "✅ Service enabled for automatic startup"
@@ -332,13 +372,15 @@ start_test_server() {
                 print_colored "$(c_success)" "✅ Web service started successfully"
                 print_colored "$(c_success)" "   📡 Port: $TEST_SITE_PORT"
                 print_colored "$(c_warning)" "   ⚠️  Accessible from local network (bypasses Tor anonymity)"
-                print_colored "$(c_secondary)" "   🔧 Manage with: systemctl {start|stop|restart|status} tor-web-${service_name}"
+                print_colored "$(c_secondary)" "   🔧 Manage with: ${SERVICE_CMD:-systemctl} {start|stop|restart|status} tor-web-${service_name}"
                 verbose_log "Web service created and started: tor-web-${service_name}"
                 sleep 3
                 return 0
             else
                 print_colored "$(c_error)" "❌ Failed to start web service"
                 print_colored "$(c_warning)" "Falling back to manual startup..."
+                # Remove system service record if it failed
+                update_service_in_registry "$service_name" "system_service" ""
             fi
         else
             print_colored "$(c_info)" "ℹ️  Creating manual web server (no system service)"
@@ -356,7 +398,7 @@ start_test_server() {
     
     # Check if server started successfully
     if curl -s "http://127.0.0.1:$TEST_SITE_PORT" >/dev/null 2>&1; then
-        print_colored "$(c_success)" "✅ Test web server started successfully on all interfaces"
+        print_colored "$(c_success)" "✅ Test web server started successfully (manual mode)"
         print_colored "$(c_success)" "   📡 Port: $TEST_SITE_PORT (PID: $server_pid)"
         print_colored "$(c_warning)" "   ⚠️  Accessible from local network (bypasses Tor anonymity)"
         print_colored "$(c_secondary)" "   🔧 Manage manually with PID file: $pid_file"
@@ -415,9 +457,9 @@ remove_service_from_registry() {
     local temp_file; temp_file=$(mktemp)
 
     # Copy all lines except the one we want to remove
-    while IFS='|' read -r name dir port onion website status created; do
+    while IFS='|' read -r name dir port onion website status system_service created; do
         if [[ "$name" != "$service_name" ]]; then
-            echo "$name|$dir|$port|$onion|$website|$status|$created"
+            echo "$name|$dir|$port|$onion|$website|$status|$system_service|$created"
         fi
     done < "$SERVICES_FILE" > "$temp_file"
     
@@ -488,13 +530,48 @@ remove_from_torrc() {
     fi
 }
 
-# Function to safely remove directories
+# Function to safely remove directories and services
 remove_service_directories() {
     local service_dir="$1"
     local website_dir="$2"
     local service_name="$3"
     
-    verbose_log "Removing service directories..."
+    verbose_log "Removing service directories and services..."
+    
+    # Get service info from registry to check for system service
+    local service_info
+    service_info=$(grep "^$service_name|" "$SERVICES_FILE" 2>/dev/null)
+    local system_service=""
+    
+    if [[ -n "$service_info" ]]; then
+        # Parse service info (handle both old and new formats)
+        IFS='|' read -r _ _ _ _ _ _ system_service_field _ <<< "$service_info"
+        
+        # Check if this is the system_service field or created date (old format)
+        if [[ "$system_service_field" =~ ^tor-web- ]]; then
+            system_service="$system_service_field"
+        fi
+    fi
+    
+    # Stop and remove system service if it exists
+    if [[ -n "$system_service" ]] && web_service_exists "$service_name"; then
+        print_colored "$(c_process)" "🛑 Stopping and removing system service: $system_service"
+        verbose_log "Found system service in registry: $system_service"
+        remove_web_service "$service_name"
+    elif web_service_exists "$service_name"; then
+        # Fallback: check if system service exists even if not tracked in registry
+        print_colored "$(c_process)" "🛑 Stopping and removing detected system service..."
+        verbose_log "System service exists but not tracked in registry, removing anyway"
+        remove_web_service "$service_name"
+    else
+        verbose_log "No system service found for $service_name"
+    fi
+    
+    # Stop any manual PID-based servers
+    if is_script_managed "$service_name"; then
+        print_colored "$(c_process)" "🛑 Stopping any manual web servers..."
+        stop_web_server "$service_name" 2>/dev/null || true
+    fi
     
     # Remove hidden service directory
     if [[ -d "$service_dir" ]]; then

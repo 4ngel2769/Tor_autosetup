@@ -52,13 +52,19 @@ list_services() {
         return 0
     fi
     
-    # Updated header with new WEB ADDRESS column and shorter ONION ADDRESS
+    # Updated header
     printf "%-30s %-6s %-40s %-8s %-10s %-12s %-25s\n" "SERVICE NAME" "PORT" "ONION ADDRESS" "STATUS" "MANAGED" "WEB SERVER" "WEB ADDRESS"
     print_colored "$(c_text)" "───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────"
     
-    while IFS='|' read -r name dir port onion website status created; do
+    while IFS='|' read -r name dir port onion website status system_service created; do
         # Skip comments and empty lines
         [[ "$name" =~ ^#.*$ ]] || [[ -z "$name" ]] && continue
+        
+        # Handle old format (no system_service field)
+        if [[ -z "$created" ]] && [[ -n "$system_service" ]]; then
+            created="$system_service"
+            system_service=""
+        fi
         
         # Handle onion address - darker color, no underline, but still clickable
         local display_onion=""
@@ -88,8 +94,13 @@ list_services() {
         local managed="NO"
         local managed_color_bg=""
         if is_script_managed "$name"; then
-            managed="YES"
-            managed_color_bg="$(c_text)"
+            if [[ -n "$system_service" ]]; then
+                managed="SYS"  # System service managed
+                managed_color_bg="$(c_success)"
+            else
+                managed="YES"  # Script managed (manual)
+                managed_color_bg="$(c_text)"
+            fi
         else
             managed_color_bg="$(c_muted)"
         fi
@@ -104,6 +115,7 @@ list_services() {
             "UNRESPONSIVE") web_color_bg="$(c_error)" ;;
             "NOT_LISTENING") web_color_bg="$(c_error)" ;;
             "NOT_RESPONDING") web_color_bg="$(c_error)" ;;
+            "SERVICE_UP_PORT_DOWN") web_color_bg="$(c_warning)" ;;
             "N/A") web_color_bg="$(c_text)" ;;
             *) web_color_bg="$(c_text)" ;;
         esac
@@ -143,6 +155,7 @@ list_services() {
             verbose_log "  Directory: $dir"
             verbose_log "  Port: $port"
             verbose_log "  Website: $website"
+            verbose_log "  System Service: ${system_service:-'none'}"
             verbose_log "  Hostname file: $dir/hostname"
             verbose_log "  Web address: $web_address_raw"
             if [[ -n "$port" ]]; then
@@ -160,7 +173,10 @@ list_services() {
     
     print_colored "$(c_secondary)" "Legend:"
     print_colored "$(c_text)" "• STATUS: Tor hidden service status (ACTIVE/INACTIVE/ERROR)"
-    print_colored "$(c_text)" "• MANAGED: Created by this script (YES/NO)"
+    print_colored "$(c_text)" "• MANAGED: Created by this script"
+    print_colored "$(c_muted)" "  - NO: External service"
+    print_colored "$(c_text)" "  - YES: Script managed (manual)"
+    print_colored "$(c_success)" "  - SYS: System service managed"
     print_colored "$(c_text)" "• WEB SERVER: Local web server status"
     print_colored "$(c_success)" "  - RUNNING: Server responding to requests"
     print_colored "$(c_warning)" "  - STOPPED: No server running on port"

@@ -710,7 +710,7 @@ setup_dynamic_config() {
     # Find available port
     local existing_ports=()
     if [[ -f "$SERVICES_FILE" ]]; then
-        while IFS='|' read -r name dir port onion website status created; do
+        while IFS='|' read -r name dir port onion website status system_service created; do
             [[ "$name" =~ ^#.*$ ]] || [[ -z "$name" ]] && continue
             [[ -n "$port" ]] && existing_ports+=("$port")
         done < "$SERVICES_FILE"
@@ -740,8 +740,8 @@ setup_dynamic_config() {
     print_colored "$(c_success)" "✅ Local port: $TEST_SITE_PORT"
     print_colored "$(c_success)" "✅ Website directory: $TEST_SITE_DIR"
     
-    # Add to registry (initially with inactive status and no website directory)
-    add_service_to_registry "$service_name" "$HIDDEN_SERVICE_DIR" "$TEST_SITE_PORT" "" "" "INACTIVE"
+    # Add to registry (initially with inactive status, no website directory, and no system service)
+    add_service_to_registry "$service_name" "$HIDDEN_SERVICE_DIR" "$TEST_SITE_PORT" "" "" "INACTIVE" ""
     
     sleep 2
 }
