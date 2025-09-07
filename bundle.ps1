@@ -266,12 +266,30 @@ try {
         $fileName = Split-Path $file -Leaf
         Write-Status "Processing $fileName..." "Gray"
         Write-VerboseLog "  Reading file: $file"
-        
-        # Read file content as raw text and split on any line ending
+
         $rawContent = Get-Content $file -Raw -Encoding UTF8
-        # Handle different line ending types properly
         $lines = $rawContent -split '\r\n|\r|\n'
-        
+
+        # --- INJECTION LOGIC FOR utils.sh ---
+        if ($fileName -eq "utils.sh") {
+            $newLines = @()
+            foreach ($line in $lines) {
+                if ($line -match '^SCRIPT_VERSION=') {
+                    $newLines += "SCRIPT_VERSION=`"$scriptVersion`""
+                } elseif ($line -match '^SCRIPT_BUILD=') {
+                    $newLines += "SCRIPT_BUILD=`"$buildDate`""
+                } elseif ($line -match '^SCRIPT_AUTHOR=') {
+                    $newLines += "SCRIPT_AUTHOR=`"$scriptAuthor`""
+                } elseif ($line -match '^SCRIPT_REPO=') {
+                    $newLines += "SCRIPT_REPO=`"$scriptRepo`""
+                } else {
+                    $newLines += $line
+                }
+            }
+            $lines = $newLines
+        }
+        # --- END INJECTION LOGIC ---
+
         $linesSkipped = 0
         
         # Add separator comment (unless minifying)

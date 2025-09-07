@@ -14,12 +14,15 @@ get_env() {
         sed 's/^["'\'']//;s/["'\'']$//' | tr -d '\r' | tr -d '\n' | tr -d '\000-\037\177'
 }
 
+SCRIPT_VERSION=$(get_env SCRIPT_VERSION || echo "0.0.0")
 SCRIPT_AUTHOR=$(get_env SCRIPT_AUTHOR || echo "Unknown")
 SCRIPT_REPO=$(get_env SCRIPT_REPO || echo "Unknown")
-SCRIPT_VERSION=$(get_env SCRIPT_VERSION || echo "0.0.0")
+BUILD_DATE=$(date +%Y.%m.%d)
+
+export SCRIPT_VERSION SCRIPT_AUTHOR SCRIPT_REPO BUILD_DATE
+
 SCRIPT_NAME=$(get_env SCRIPT_NAME || echo "torstp")
 OUT="$SCRIPT_NAME"
-BUILD_DATE=$(date +%Y.%m.%d)
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 USER=$(whoami)
 HOST=$(hostname)
@@ -77,12 +80,32 @@ set -euo pipefail
 
 EOF
 
+# --- Prepare utils.sh with embedded metadata ---
+UTILS_PATH="$SRC_DIR/utils.sh"
+UTILS_TMP="$(mktemp)"
+
+# Replace metadata lines with values from .env and build date
+awk '
+    BEGIN {
+        version = ENVIRON["SCRIPT_VERSION"];
+        build = ENVIRON["BUILD_DATE"];
+        author = ENVIRON["SCRIPT_AUTHOR"];
+        repo = ENVIRON["SCRIPT_REPO"];
+    }
+    /^SCRIPT_VERSION=/ { print "SCRIPT_VERSION=\"" version "\""; next }
+    /^SCRIPT_BUILD=/   { print "SCRIPT_BUILD=\"" build "\""; next }
+    /^SCRIPT_AUTHOR=/  { print "SCRIPT_AUTHOR=\"" author "\""; next }
+    /^SCRIPT_REPO=/    { print "SCRIPT_REPO=\"" repo "\""; next }
+    { print }
+' "$UTILS_PATH" > "$UTILS_TMP"
+
 # --- Bundle modules ---
 for mod in "${MODULES[@]}"; do
     MOD_PATH="$SRC_DIR/$mod"
-    if [[ ! -f "$MOD_PATH" ]]; then
-        echo "❌ Missing module: $MOD_PATH" >&2
-        exit 1
+    if [[ "$mod" == "utils.sh" ]]; then
+        cat "$UTILS_TMP" >> "$OUT"
+    else
+        grep -vE '^(#\!|# shellcheck source=|source .*/.*\.sh|SCRIPT_DIR=|set -euo pipefail)' "$MOD_PATH" >> "$OUT"
     fi
     echo "" >> "$OUT"
     echo "# =============================================================================" >> "$OUT"
@@ -95,6 +118,8 @@ for mod in "${MODULES[@]}"; do
     echo "# END OF: $mod" >> "$OUT"
     echo "# =============================================================================" >> "$OUT"
 done
+
+rm -f "$UTILS_TMP"
 
 chmod +x "$OUT"
 echo "✅ Bundle complete: $OUT"

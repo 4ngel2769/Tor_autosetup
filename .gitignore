@@ -8,3 +8,4 @@ run*
 # Ignore common directories and environment files
 .class/
 .env
+ARCHITECT.md

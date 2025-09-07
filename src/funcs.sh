@@ -90,9 +90,29 @@ detect_system() {
         INSTALL_CMD="zypper"
         DISTRO="suse-based"
         verbose_log "Found zypper package manager (SUSE-based)"
+    elif command -v xbps-install >/dev/null 2>&1; then
+        PACKAGE_MANAGER="xbps"
+        INSTALL_CMD="xbps-install"
+        DISTRO="void"
+        verbose_log "Found xbps package manager (Void Linux)"
+    elif command -v apk >/dev/null 2>&1; then
+        PACKAGE_MANAGER="apk"
+        INSTALL_CMD="apk"
+        DISTRO="alpine"
+        verbose_log "Found apk package manager (Alpine Linux)"
+    elif command -v slackpkg >/dev/null 2>&1; then
+        PACKAGE_MANAGER="slackpkg"
+        INSTALL_CMD="slackpkg"
+        DISTRO="slackware"
+        verbose_log "Found slackpkg package manager (Slackware)"
+    elif command -v emerge >/dev/null 2>&1; then
+        PACKAGE_MANAGER="emerge"
+        INSTALL_CMD="emerge"
+        DISTRO="gentoo"
+        verbose_log "Found emerge package manager (Gentoo)"
     else
         print_colored "$(c_error)" "❌ Unsupported package manager detected!"
-        print_colored "$(c_warning)" "This script supports: apt, yum, dnf, pacman, zypper"
+        print_colored "$(c_warning)" "This script supports: apt, yum, dnf, pacman, zypper, xbps, apk, slackpkg, emerge"
         exit 1
     fi
     
@@ -158,27 +178,49 @@ install_packages() {
     print_colored "$(c_process)" "📦 Installing packages: ${packages[*]}"
     verbose_log "Package manager: $PACKAGE_MANAGER"
     verbose_log "Install command: $INSTALL_CMD"
+    local rc=0
     
     case $PACKAGE_MANAGER in
         "apt")
-            verbose_log "Updating package list..."
-            apt-get update -qq
-            verbose_log "Installing packages with apt-get..."
-            apt-get install -y "${packages[@]}"
+            apt-get update -qq || rc=1
+            apt-get install -y "${packages[@]}" || rc=1
             ;;
         "yum"|"dnf")
-            verbose_log "Installing packages with $INSTALL_CMD..."
-            $INSTALL_CMD install -y "${packages[@]}"
+            $INSTALL_CMD install -y "${packages[@]}" || rc=1
             ;;
         "pacman")
-            verbose_log "Installing packages with pacman..."
-            pacman -Syu --noconfirm "${packages[@]}"
+            pacman -Syu --noconfirm "${packages[@]}" || rc=1
             ;;
         "zypper")
-            verbose_log "Installing packages with zypper..."
-            zypper install -y "${packages[@]}"
+            zypper install -y "${packages[@]}" || rc=1
+            ;;
+        "xbps")
+            xbps-install -S || rc=1
+            xbps-install -y "${packages[@]}" || rc=1
+            ;;
+        "apk")
+            apk update || rc=1
+            apk add "${packages[@]}" || rc=1
+            ;;
+        "slackpkg")
+            slackpkg update || rc=1
+            slackpkg install "${packages[@]}" || rc=1
+            ;;
+        "emerge")
+            emerge --ask --quiet-build=n "${packages[@]}" || rc=1
+            ;;
+        *)
+            print_colored "$(c_error)" "❌ Unsupported package manager: $PACKAGE_MANAGER"
+            return 1
             ;;
     esac
+
+    if [[ $rc -ne 0 ]]; then
+        print_colored "$(c_error)" "❌ Failed to install required packages: ${packages[*]}"
+        print_colored "$(c_warning)" "Please install them manually and re-run the script."
+        exit 1
+    fi
+
     verbose_log "Package installation completed"
 }
 
@@ -277,23 +319,21 @@ manage_tor_service() {
 # Function to install web dependencies
 install_web_dependencies() {
     print_colored "$(c_process)" "📦 Installing web dependencies..."
-    
+    local rc=0
+
     # Check if Python3 is installed
     if ! command -v python3 >/dev/null 2>&1; then
         verbose_log "Python3 not found, installing..."
         print_colored "$(c_process)" "🔧 Installing Python3..."
         case $PACKAGE_MANAGER in
-            "apt")
-                install_packages python3
-                ;;
-            "yum"|"dnf")
+            "apt"|"yum"|"dnf"|"zypper"|"xbps"|"apk"|"slackpkg")
                 install_packages python3
                 ;;
             "pacman")
                 install_packages python
                 ;;
-            "zypper")
-                install_packages python3
+            "emerge")
+                install_packages dev-lang/python
                 ;;
         esac
         print_colored "$(c_success)" "✅ Python3 installed successfully"
@@ -303,23 +343,17 @@ install_web_dependencies() {
         verbose_log "Python3 found: $(python3 --version)"
         sleep 1
     fi
-    
+
     # Check if curl is installed (for server testing)
     if ! command -v curl >/dev/null 2>&1; then
         verbose_log "curl not found, installing..."
         print_colored "$(c_process)" "🔧 Installing curl..."
         case $PACKAGE_MANAGER in
-            "apt")
+            "apt"|"yum"|"dnf"|"pacman"|"zypper"|"xbps"|"apk"|"slackpkg")
                 install_packages curl
                 ;;
-            "yum"|"dnf")
-                install_packages curl
-                ;;
-            "pacman")
-                install_packages curl
-                ;;
-            "zypper")
-                install_packages curl
+            "emerge")
+                install_packages net-misc/curl
                 ;;
         esac
         print_colored "$(c_success)" "✅ curl installed successfully"
@@ -327,7 +361,40 @@ install_web_dependencies() {
     else
         verbose_log "curl is already installed"
     fi
-    
+
+    # Check if net-tools (for netstat/ss) is installed
+    if ! command -v ss >/dev/null 2>&1 && ! command -v netstat >/dev/null 2>&1; then
+        verbose_log "net-tools not found, installing..."
+        print_colored "$(c_process)" "🔧 Installing net-tools..."
+        case $PACKAGE_MANAGER in
+            "apt"|"yum"|"dnf"|"pacman"|"zypper"|"xbps"|"apk"|"slackpkg")
+                install_packages net-tools
+                ;;
+            "emerge")
+                install_packages sys-apps/net-tools
+                ;;
+        esac
+        print_colored "$(c_success)" "✅ net-tools installed successfully"
+        sleep 1.5
+    else
+        verbose_log "net-tools/ss is already installed"
+    fi
+
+    # Optionally install iproute2 for modern ss on Alpine/Gentoo
+    if [[ "$PACKAGE_MANAGER" == "apk" ]] || [[ "$PACKAGE_MANAGER" == "emerge" ]]; then
+        if ! command -v ss >/dev/null 2>&1; then
+            print_colored "$(c_process)" "🔧 Installing iproute2 for modern ss/netstat..."
+            case $PACKAGE_MANAGER in
+                "apk")
+                    install_packages iproute2
+                    ;;
+                "emerge")
+                    install_packages net-misc/iproute2
+                    ;;
+            esac
+        fi
+    fi
+
     print_colored "$(c_success)" "✅ Web dependencies installed"
     sleep 1.5
 }

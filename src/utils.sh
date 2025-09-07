@@ -12,13 +12,20 @@
 COLOR_SCHEME="PASTEL"
 # Global flags
 VERBOSE=false
+ENV_FILE="../.env"
+
+get_env() {
+    local key="$1"
+    grep -E "^$key=" "$ENV_FILE" | head -n1 | cut -d= -f2- | \
+        sed 's/^["'\'']//;s/["'\'']$//' | tr -d '\r' | tr -d '\n' | tr -d '\000-\037\177'
+}
 
 # ================================================================================
 # SCRIPT METADATA
 # ================================================================================
 SCRIPT_NAME="Tor Hidden Service Setup Script"
-SCRIPT_VERSION="0.3.0"
-SCRIPT_BUILD="2025.09.06"
+SCRIPT_VERSION="0.3.3"
+SCRIPT_BUILD="2025.09.07"
 SCRIPT_AUTHOR="4ngel2769"
 SCRIPT_REPO="https://github.com/4ngel2769/tor_autosetup"
 SCRIPT_LICENSE="MIT"
