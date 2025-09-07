@@ -1,5 +1,14 @@
 #!/bin/bash
 
+if [[ ! -t 0 ]]; then
+    exec </dev/tty
+fi
+
+if [[ $EUID -ne 0 ]]; then
+    echo "🔒 This script requires root privileges. Prompting for sudo password..."
+    exec sudo -E bash "$0" "$@"
+fi
+
 # main.sh - Entry point and CLI logic
 # This file contains the main script logic, CLI parsing, and orchestration
 
