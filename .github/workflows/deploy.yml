@@ -34,11 +34,11 @@ jobs:
       - name: Set permissions
         run: |
           chmod +x bundler.sh
-          chmod +x deploy_sandbox.sh
+          chmod +x deploy_action.sh
           chmod +x src/*.sh || true
 
       - name: Build bundle
         run: ./bundler.sh
 
       - name: Deploy to sandbox
-        run: ./deploy_sandbox.sh
+        run: ./deploy_action.sh
