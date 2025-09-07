@@ -30,13 +30,15 @@ done < .env
 
 # --- Check required variables ---
 status "Checking required variables..."
-for var in SSH_USER SSH_HOST SSH_PORT SSH_DIR SCRIPT_NAME; do
+required_vars=(SSH_USER SSH_HOST SSH_PORT SSH_DIR SCRIPT_NAME SCRIPT_URL_PATH SCRIPTS_BASE_DIR)
+for var in "${required_vars[@]}"; do
     if [[ -z "${!var:-}" ]]; then
         error "Missing required .env variable: $var"
         exit 1
     fi
 done
 
+# --- Build script ---
 ready "Bundling script using bundler.sh..."
 if [[ -x ./bundler.sh ]]; then
     info "Running: ./bundler.sh"
@@ -46,16 +48,62 @@ else
     exit 1
 fi
 
-# --- Transfer to remote host ---
-ready "Transferring $SCRIPT_NAME to $SSH_USER@$SSH_HOST:$SSH_DIR"
-
+# --- Prepare SSH connection ---
+SSH_OPTS=(-P "$SSH_PORT")
 if [[ -n "${SSH_KEY_PATH_V2:-}" && -f "$SSH_KEY_PATH_V2" ]]; then
     info "Using SSH key file: $SSH_KEY_PATH_V2"
-    scp -P "$SSH_PORT" -i "$SSH_KEY_PATH_V2" -p "$SCRIPT_NAME" "$SSH_USER@$SSH_HOST:$SSH_DIR"
+    SSH_OPTS+=(-i "$SSH_KEY_PATH_V2")
 else
     warn "No SSH key file specified, trying ssh-agent..."
-    scp -P "$SSH_PORT" -p "$SCRIPT_NAME" "$SSH_USER@$SSH_HOST:$SSH_DIR"
 fi
 
+# --- Create directory structure and deploy ---
+ready "Setting up directory structure for script routing..."
+
+# Create the target directory structure on the server
+TARGET_SCRIPT_DIR="$SCRIPTS_BASE_DIR/$SCRIPT_URL_PATH"
+info "Creating directory: $TARGET_SCRIPT_DIR"
+
+ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "mkdir -p '$TARGET_SCRIPT_DIR'"
+
+# Transfer the bundled script to the correct location
+ready "Transferring $SCRIPT_NAME to $SSH_USER@$SSH_HOST:$TARGET_SCRIPT_DIR"
+
+# First transfer to temp location
+scp "${SSH_OPTS[@]}" -p "$SCRIPT_NAME" "$SSH_USER@$SSH_HOST:/tmp/"
+
+# Then move to final location and set up routing
+ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "
+    # Move script to target directory
+    mv '/tmp/$SCRIPT_NAME' '$TARGET_SCRIPT_DIR/'
+    
+    # Make it executable
+    chmod +x '$TARGET_SCRIPT_DIR/$SCRIPT_NAME'
+    
+    # Create a symlink or copy for clean URL routing
+    # This allows /tor to serve the script without .sh extension
+    ln -sf '$TARGET_SCRIPT_DIR/$SCRIPT_NAME' '$SCRIPTS_BASE_DIR/$SCRIPT_URL_PATH'
+    
+    # Set proper permissions
+    chmod +x '$SCRIPTS_BASE_DIR/$SCRIPT_URL_PATH'
+    
+    # Create backup with timestamp
+    BACKUP_DIR='$SCRIPTS_BASE_DIR/.backups/$SCRIPT_URL_PATH'
+    mkdir -p \"\$BACKUP_DIR\"
+    cp '$TARGET_SCRIPT_DIR/$SCRIPT_NAME' \"\$BACKUP_DIR/\$(date +%Y%m%d_%H%M%S)_$SCRIPT_NAME\"
+    
+    # Keep only last 5 backups
+    ls -t \"\$BACKUP_DIR\" | tail -n +6 | xargs -r -I {} rm \"\$BACKUP_DIR/{}\"
+"
+
 success "Deployment complete!"
-info "On target: chmod +x $SCRIPT_NAME && ./$SCRIPT_NAME --help"
+info "Script deployed to: $TARGET_SCRIPT_DIR/$SCRIPT_NAME"
+info "Clean URL available at: https://get.adev0.eu/$SCRIPT_URL_PATH"
+info "Directory structure:"
+info "  $SCRIPTS_BASE_DIR/"
+info "  ├── $SCRIPT_URL_PATH (symlink to actual script)"
+info "  ├── $SCRIPT_URL_PATH/"
+info "  │   └── $SCRIPT_NAME (actual script file)"
+info "  └── .backups/$SCRIPT_URL_PATH/ (timestamped backups)"
+info ""
+info "Test with: curl -fsSL https://get.adev0.eu/$SCRIPT_URL_PATH | sudo bash"
