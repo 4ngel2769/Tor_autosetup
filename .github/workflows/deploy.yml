@@ -1,0 +1,48 @@
+name: Build and Deploy Tor Script
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create .env file from secrets
+        run: |
+          cat <<EOF > .env
+          SSH_USER=${{ secrets.SSH_USER }}
+          SSH_HOST=${{ secrets.SSH_HOST }}
+          SSH_PORT=${{ secrets.SSH_PORT }}
+          SSH_KEY_PATH_V1=${{ secrets.SSH_KEY_PATH_V1 }}
+          SSH_KEY_PATH_V2=${{ secrets.SSH_KEY_PATH_V2 }}
+          SSH_DIR=${{ secrets.SSH_DIR }}
+          SCRIPT_NAME=${{ secrets.SCRIPT_NAME }}
+          SCRIPT_AUTHOR=${{ secrets.SCRIPT_AUTHOR }}
+          SCRIPT_VERSION=${{ secrets.SCRIPT_VERSION }}
+          SCRIPT_REPO=${{ secrets.SCRIPT_REPO }}
+          EOF
+
+      - name: Set permissions
+        run: |
+          chmod +x bundler.sh
+          chmod +x deploy_sandbox.sh
+          chmod +x src/*.sh || true
+
+      - name: Build bundle
+        run: ./bundler.sh
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: |
+            ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Deploy to sandbox
+        run: ./deploy_sandbox.sh
