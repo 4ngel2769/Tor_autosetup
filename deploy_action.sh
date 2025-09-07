@@ -81,11 +81,12 @@ ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "
     chmod +x '$TARGET_SCRIPT_DIR/$SCRIPT_NAME'
     
     # Create a symlink for clean URL routing
-    ln -sf '$TARGET_SCRIPT_DIR/$SCRIPT_NAME' '$SCRIPTS_BASE_DIR/$SCRIPT_URL_PATH'
+    cd '$SCRIPTS_BASE_DIR/$SCRIPT_DIR_PATH'
+    ln -sf '$TARGET_SCRIPT_DIR/$SCRIPT_NAME' '$SCRIPT_URL_PATH'
     
     # Set proper permissions
-    chmod +x '$SCRIPTS_BASE_DIR/$SCRIPT_URL_PATH'
-    
+    chmod +x '$SCRIPT_URL_PATH'
+
     # Create backup with timestamp
     BACKUP_DIR='$SCRIPTS_BASE_DIR/.backups/$SCRIPT_URL_PATH'
     mkdir -p \"\$BACKUP_DIR\"
