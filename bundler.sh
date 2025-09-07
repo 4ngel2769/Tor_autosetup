@@ -102,17 +102,15 @@ awk '
 # --- Bundle modules ---
 for mod in "${MODULES[@]}"; do
     MOD_PATH="$SRC_DIR/$mod"
+    echo "" >> "$OUT"
+    echo "# =============================================================================" >> "$OUT"
+    echo "# START OF: $mod" >> "$OUT"
+    echo "# =============================================================================" >> "$OUT"
     if [[ "$mod" == "utils.sh" ]]; then
         cat "$UTILS_TMP" >> "$OUT"
     else
         grep -vE '^(#\!|# shellcheck source=|source .*/.*\.sh|SCRIPT_DIR=|set -euo pipefail)' "$MOD_PATH" >> "$OUT"
     fi
-    echo "" >> "$OUT"
-    echo "# =============================================================================" >> "$OUT"
-    echo "# START OF: $mod" >> "$OUT"
-    echo "# =============================================================================" >> "$OUT"
-    # Remove shebang and source lines, keep everything else
-    grep -vE '^(#\!|# shellcheck source=|source .*/.*\.sh|SCRIPT_DIR=|set -euo pipefail)' "$MOD_PATH" >> "$OUT"
     echo "" >> "$OUT"
     echo "# =============================================================================" >> "$OUT"
     echo "# END OF: $mod" >> "$OUT"
