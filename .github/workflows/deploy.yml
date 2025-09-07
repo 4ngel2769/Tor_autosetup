@@ -40,5 +40,12 @@ jobs:
       - name: Build bundle
         run: ./bundler.sh
 
+      - name: Add remote host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+
       - name: Deploy to sandbox
         run: ./deploy_action.sh
