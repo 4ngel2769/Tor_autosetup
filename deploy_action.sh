@@ -61,7 +61,7 @@ fi
 ready "Setting up directory structure for script routing..."
 
 # Create the target directory structure on the server
-TARGET_SCRIPT_DIR="$SCRIPTS_BASE_DIR/$SCRIPT_URL_PATH"
+TARGET_SCRIPT_DIR="$SCRIPTS_BASE_DIR/$SCRIPT_DIR_PATH"
 info "Creating directory: $TARGET_SCRIPT_DIR"
 
 ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "mkdir -p '$TARGET_SCRIPT_DIR'"
@@ -101,7 +101,7 @@ info "Clean URL available at: https://get.adev0.eu/$SCRIPT_URL_PATH"
 info "Directory structure:"
 info "  $SCRIPTS_BASE_DIR/"
 info "  ├── $SCRIPT_URL_PATH (symlink to actual script)"
-info "  ├── $SCRIPT_URL_PATH/"
+info "  ├── $SCRIPT_DIR_PATH/"
 info "  │   └── $SCRIPT_NAME (actual script file)"
 info "  └── .backups/$SCRIPT_URL_PATH/ (timestamped backups)"
 info ""
