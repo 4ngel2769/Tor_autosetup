@@ -1,10 +1,6 @@
 #!/bin/bash
 
-#if [[ ! -t 0 ]]; then
-#    exec </dev/tty
-#fi
-
-if [[ $EUID -ne 0 ]]; then
+if [[ $EUID -ne 0 && ( -z "${BASH_SOURCE-}" || "${BASH_SOURCE[0]-}" == "${0-}" || "$0" == "bash" ) ]]; then
     echo "🔒 This script requires root privileges. Prompting for sudo password..."
     exec sudo -E bash "$0" "$@"
 fi
