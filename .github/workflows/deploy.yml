@@ -26,6 +26,7 @@ jobs:
           SCRIPT_VERSION=${{ secrets.SCRIPT_VERSION }}
           SCRIPT_REPO=${{ secrets.SCRIPT_REPO }}
           SCRIPT_URL_PATH=${{ secrets.SCRIPT_URL_PATH }}
+          SCRIPT_DIR_PATH=${{ secrets.SCRIPT_DIR_PATH }}
           SCRIPTS_BASE_DIR=${{ secrets.SCRIPTS_BASE_DIR }}
           SSH_KEY_PATH_V2=$(pwd)/id_ed25519
           EOF
