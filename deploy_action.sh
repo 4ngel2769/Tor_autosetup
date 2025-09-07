@@ -30,7 +30,7 @@ done < .env
 
 # --- Check required variables ---
 status "Checking required variables..."
-required_vars=(SSH_USER SSH_HOST SSH_PORT SSH_DIR SCRIPT_NAME SCRIPT_URL_PATH SCRIPTS_BASE_DIR)
+required_vars=(SSH_USER SSH_HOST SSH_PORT SSH_DIR SCRIPT_NAME SCRIPT_URL_PATH SCRIPT_DIR_PATH SCRIPTS_BASE_DIR)
 for var in "${required_vars[@]}"; do
     if [[ -z "${!var:-}" ]]; then
         error "Missing required .env variable: $var"
