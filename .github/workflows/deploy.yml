@@ -1,4 +1,4 @@
-name: Build and Deploy Tor Script
+name: Build and Deploy Scripts
 
 on:
   push:
@@ -25,6 +25,8 @@ jobs:
           SCRIPT_AUTHOR=${{ secrets.SCRIPT_AUTHOR }}
           SCRIPT_VERSION=${{ secrets.SCRIPT_VERSION }}
           SCRIPT_REPO=${{ secrets.SCRIPT_REPO }}
+          SCRIPT_URL_PATH=${{ secrets.SCRIPT_URL_PATH }}
+          SCRIPTS_BASE_DIR=${{ secrets.SCRIPTS_BASE_DIR }}
           SSH_KEY_PATH_V2=$(pwd)/id_ed25519
           EOF
 
@@ -46,6 +48,5 @@ jobs:
           ssh-keyscan -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
-
-      - name: Deploy to sandbox
+      - name: Deploy to server
         run: ./deploy_action.sh
