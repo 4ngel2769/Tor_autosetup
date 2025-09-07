@@ -80,8 +80,7 @@ ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "
     # Make it executable
     chmod +x '$TARGET_SCRIPT_DIR/$SCRIPT_NAME'
     
-    # Create a symlink or copy for clean URL routing
-    # This allows /tor to serve the script without .sh extension
+    # Create a symlink for clean URL routing
     ln -sf '$TARGET_SCRIPT_DIR/$SCRIPT_NAME' '$SCRIPTS_BASE_DIR/$SCRIPT_URL_PATH'
     
     # Set proper permissions
