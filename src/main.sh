@@ -1,11 +1,8 @@
 #!/bin/bash
 
 if [[ $EUID -ne 0 ]]; then
-    if [[ -t 0 ]]; then
-        exec sudo -E bash "$0" "$@"
-    else
-        exec sudo -E bash <(cat) "$@"
-    fi
+    echo "🔒 This script requires root privileges. Prompting for sudo password..."
+    exec sudo -E bash -s -- "$@" < /dev/stdin
 fi
 
 # main.sh - Entry point and CLI logic
