@@ -1276,7 +1276,7 @@ main() {
 trap 'print_colored "$(c_error)" "Script interrupted"; exit 1' INT TERM
 
 # Run main function if this script is executed directly
-if [[ "${BASH_SOURCE[0]-}" == "${0-}" ]]; then
+if [[ -z "${BASH_SOURCE-}" || "${BASH_SOURCE[0]-}" == "${0-}" || "$0" == "bash" ]]; then
     main "$@"
 fi
 
